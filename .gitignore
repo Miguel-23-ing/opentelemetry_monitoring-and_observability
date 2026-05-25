@@ -1,0 +1,36 @@
+# IDE - Metals (Scala)
+.metals/
+
+# IDE - VSCode
+.vscode/
+
+# IDE - IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Java / Maven / Gradle
+target/
+build/
+*.class
+*.jar
+!opentelemetry-javaagent.jar
+
+# Logs locales
+logs/*.log
+logs/**/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup de scripts de alertas
+prometheus_alert_rules.yml.bak
+
+# Scripts temporales de diagnóstico
+check-ds.ps1
+check-prom.ps1
+check-p95.ps1
+check-status.ps1
+fix-encoding.ps1
