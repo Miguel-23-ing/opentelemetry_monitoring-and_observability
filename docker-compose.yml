@@ -172,6 +172,73 @@ services:
       - observability
 
   # ============================================================
+  # MICROSERVICIOS - fx-course-service y fx-catalog-service
+  # ============================================================
+  fx-course-service:
+    build:
+      context: ./parte0-JaegerCourseApp
+      dockerfile: Dockerfile
+    container_name: fx-course-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/futurex_course_db?createDatabaseIfNotExist=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=techbankRootPsw
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=fx-course-service,deployment.environment=development
+      - OTEL_SERVICE_NAME=fx-course-service
+    depends_on:
+      mysql:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://localhost:8001/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 45s
+    networks:
+      - observability
+
+  fx-catalog-service:
+    build:
+      context: ./part0-JaegerCourseCatalog
+      dockerfile: Dockerfile
+    container_name: fx-catalog-service
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - COURSE_SERVICE_URL=http://fx-course-service:8001
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=fx-catalog-service,deployment.environment=development
+      - OTEL_SERVICE_NAME=fx-catalog-service
+    depends_on:
+      fx-course-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://localhost:8002/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    networks:
+      - observability
+
+  # ============================================================
   # DATABASE - MySQL para persistencia de microservicios
   # ============================================================
   mysql:

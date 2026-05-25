@@ -16,6 +16,8 @@ build/
 *.class
 *.jar
 !opentelemetry-javaagent.jar
+parte0-JaegerCourseApp/opentelemetry-javaagent.jar
+part0-JaegerCourseCatalog/opentelemetry-javaagent.jar
 
 # Logs locales
 logs/*.log
