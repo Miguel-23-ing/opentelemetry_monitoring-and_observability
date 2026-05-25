@@ -1,0 +1,81 @@
+# =============================================================================
+# Prometheus Alert Rules
+# Reglas de alerta para detectar problemas en los microservicios FutureX
+# =============================================================================
+# Nombres de mÃ©tricas:
+#   - Java Agent: otel_http_server_request_duration_seconds (con labels http_response_status_code, http_route)
+#   - Custom:     otel_fx_course_requests_total, otel_fx_catalog_requests_total
+# =============================================================================
+
+groups:
+  - name: futurex_microservices_alerts
+    rules:
+      # Alerta: Tasa alta de errores HTTP (>10% en 5 minutos)
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+            /
+            sum(rate(otel_http_server_request_duration_seconds_count[5m]))
+          ) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alta tasa de errores HTTP (> 10%)"
+          description: "MÃ¡s del 10% de las solicitudes estÃ¡n fallando en los Ãºltimos 5 minutos."
+
+      # Alerta: Latencia alta (p95 > 2 segundos)
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latencia alta detectada (p95 > 2s)"
+          description: "El percentil 95 de latencia supera los 2 segundos."
+
+      # Alerta: Servicio sin recibir trÃ¡fico (usa absent para detectar ausencia de serie)
+      - alert: NoTraffic
+        expr: |
+          absent(rate(otel_http_server_request_duration_seconds_count[10m]))
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Sin trÃ¡fico detectado"
+          description: "No se han recibido solicitudes HTTP en los Ãºltimos 10 minutos."
+
+      # Alerta: Alta latencia en mÃ©tricas personalizadas del catÃ¡logo
+      - alert: CatalogHighLatency
+        expr: |
+          (
+            rate(otel_fx_catalog_request_duration_ms_sum[5m])
+            /
+            rate(otel_fx_catalog_request_duration_ms_count[5m])
+          ) > 1000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latencia alta en fx-catalog-service (> 1s)"
+          description: "El servicio de catÃ¡logo tarda mÃ¡s de 1 segundo en promedio."
+
+      # Alerta: Alta latencia en mÃ©tricas personalizadas del curso
+      - alert: CourseHighLatency
+        expr: |
+          (
+            rate(otel_fx_course_request_duration_ms_sum[5m])
+            /
+            rate(otel_fx_course_request_duration_ms_count[5m])
+          ) > 1000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latencia alta en fx-course-service (> 1s)"
+          description: "El servicio de cursos tarda mÃ¡s de 1 segundo en promedio."
+

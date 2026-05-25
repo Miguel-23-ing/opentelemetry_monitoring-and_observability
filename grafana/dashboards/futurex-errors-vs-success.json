@@ -1,0 +1,239 @@
+{
+  "annotations": { "list": [] },
+  "description": "Dashboard 3: Porcentaje de errores vs solicitudes exitosas en las últimas 6 horas",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "🔴🟢 Errores vs Éxitos - Distribución (últimas 6h)",
+      "description": "Porcentaje de respuestas exitosas (2xx) vs errores de cliente (4xx) vs errores de servidor (5xx) en las últimas 6 horas",
+      "type": "piechart",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 10, "w": 10, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"2..\"}[6h]))",
+          "legendFormat": "Exitosas (2xx)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"3..\"}[6h]))",
+          "legendFormat": "Redirecciones (3xx)",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"4..\"}[6h]))",
+          "legendFormat": "Errores Cliente (4xx)",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[6h]))",
+          "legendFormat": "Errores Servidor (5xx)",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Exitosas (2xx)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Redirecciones (3xx)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#5794F2", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Errores Cliente (4xx)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Errores Servidor (5xx)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "single" }
+      }
+    },
+    {
+      "title": "📊 Tasa de Error (%) en el tiempo",
+      "description": "Porcentaje de solicitudes con error (4xx+5xx) sobre el total, calculado en ventana de 5 minutos",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 10, "w": 14, "x": 10, "y": 0 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "(\n  sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\"}[5m]))\n  /\n  sum(rate(otel_http_server_request_duration_seconds_count[5m]))\n) * 100",
+          "legendFormat": "Tasa de Error Total (%)",
+          "refId": "A"
+        },
+        {
+          "expr": "(\n  sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[5m]))\n  /\n  sum(rate(otel_http_server_request_duration_seconds_count[5m]))\n) * 100",
+          "legendFormat": "Errores 5xx (%)",
+          "refId": "B"
+        },
+        {
+          "expr": "(\n  sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"4..\"}[5m]))\n  /\n  sum(rate(otel_http_server_request_duration_seconds_count[5m]))\n) * 100",
+          "legendFormat": "Errores 4xx (%)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "axisLabel": "% Error"
+          },
+          "unit": "percent",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 15 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📈 Errores vs Éxitos por Servicio (timeseries)",
+      "description": "Comparación de solicitudes exitosas vs errores en el tiempo, separadas por servicio",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"2..\", exported_job=\"fx-catalog-service\"}[5m])) * 60",
+          "legendFormat": "Catálogo - Éxitos/min",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\", exported_job=\"fx-catalog-service\"}[5m])) * 60",
+          "legendFormat": "Catálogo - Errores/min",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"2..\", exported_job=\"fx-course-service\"}[5m])) * 60",
+          "legendFormat": "Cursos - Éxitos/min",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\", exported_job=\"fx-course-service\"}[5m])) * 60",
+          "legendFormat": "Cursos - Errores/min",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never" },
+          "unit": "reqpm"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🔍 Correlación: Errores vs Latencia",
+      "description": "Superpone la tasa de error con la latencia P95 para detectar si los errores correlacionan con alta latencia",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "(\n  sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\"}[5m]))\n  /\n  sum(rate(otel_http_server_request_duration_seconds_count[5m]))\n) * 100",
+          "legendFormat": "Tasa Error (%)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "Latencia P95 (ms)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Tasa Error (%)" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "custom.axisPlacement", "value": "left" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Latencia P95 (ms)" },
+            "properties": [
+              { "id": "unit", "value": "ms" },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📊 Status Codes por Endpoint (últimas 6h)",
+      "description": "Tabla con el conteo de solicitudes por endpoint y status code en las últimas 6 horas",
+      "type": "table",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 18 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count[6h])) by (http_route, http_response_status_code, exported_job)",
+          "legendFormat": "{{exported_job}} {{http_route}} [{{http_response_status_code}}]",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "Solicitudes" }] },
+          { "matcher": { "id": "byName", "options": "http_route" }, "properties": [{ "id": "displayName", "value": "Endpoint" }] },
+          { "matcher": { "id": "byName", "options": "http_response_status_code" }, "properties": [{ "id": "displayName", "value": "Status" }] },
+          { "matcher": { "id": "byName", "options": "exported_job" }, "properties": [{ "id": "displayName", "value": "Servicio" }] },
+          { "matcher": { "id": "byName", "options": "Time" }, "properties": [{ "id": "custom.hidden", "value": true }] }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Solicitudes", "desc": true }]
+      },
+      "transformations": [
+        { "id": "filterFieldsByName", "options": { "include": { "pattern": "exported_job|http_route|http_response_status_code|Value" } } }
+      ]
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["opentelemetry", "futurex", "errors", "status-codes"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FutureX - Ejemplo 3: Errores vs Éxitos",
+  "uid": "futurex-errors-success",
+  "version": 1,
+  "refresh": "30s"
+}

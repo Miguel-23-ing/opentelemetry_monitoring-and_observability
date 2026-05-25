@@ -1,0 +1,212 @@
+# =============================================================================
+# Docker Compose - Observabilidad completa con OpenTelemetry, Prometheus,
+# Grafana y ELK (Elasticsearch, Logstash, Kibana)
+# =============================================================================
+# Flujo de datos:
+#   Microservicios --OTLP--> OTel Collector ---> Jaeger (trazas)
+#                                           ---> Prometheus (métricas)
+#                                           ---> Archivo ---> Logstash ---> ES
+#   Grafana lee de: Prometheus + Elasticsearch + Jaeger
+#   Kibana lee de:  Elasticsearch
+# =============================================================================
+
+services:
+
+  # ============================================================
+  # TRACING - Jaeger como backend de trazas distribuidas
+  # ============================================================
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"   # Web UI
+      - "14250:14250"   # gRPC collector
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://localhost:16686/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - observability
+
+  # ============================================================
+  # OPENTELEMETRY COLLECTOR - Pipeline central de telemetría
+  # Recibe traces/metrics/logs vía OTLP, los procesa y exporta
+  # ============================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.88.0
+    container_name: otel-collector
+    restart: unless-stopped
+    user: "0:0"
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+      - otel_logs:/var/log
+    ports:
+      - "4319:4317"     # OTLP gRPC receiver (los microservicios envían aquí)
+      - "4320:4318"     # OTLP HTTP receiver
+      - "8889:8889"     # Prometheus exporter (Prometheus scrapea aquí)
+    depends_on:
+      jaeger:
+        condition: service_healthy
+    networks:
+      - observability
+
+  # ============================================================
+  # METRICS - Prometheus para recolección y almacenamiento
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus_alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - observability
+
+  # ============================================================
+  # VISUALIZATION - Grafana para dashboards, alertas y correlación
+  # ============================================================
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+  # ============================================================
+  # ELK STACK - Elasticsearch para almacenamiento de logs
+  # ============================================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - observability
+
+  # ELK STACK - Kibana para visualización y búsqueda de logs
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.0
+    container_name: kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
+    networks:
+      - observability
+
+  # ELK STACK - Logstash para procesamiento e ingesta de logs
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.17.0
+    container_name: logstash
+    restart: unless-stopped
+    user: root
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+      - otel_logs:/var/log
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+  # ============================================================
+  # DATABASE - MySQL para persistencia de microservicios
+  # ============================================================
+  mysql:
+    image: mysql:8.0
+    container_name: futurex-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: techbankRootPsw
+      MYSQL_DATABASE: futurex_course_db
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-ptechbankRootPsw"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - observability
+
+# ============================================================
+# VOLUMES - Persistencia de datos entre reinicios
+# ============================================================
+volumes:
+  mysql_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+  otel_logs:
+
+# ============================================================
+# NETWORKS - Red compartida para comunicación entre servicios
+# ============================================================
+networks:
+  observability:
+    driver: bridge

@@ -1,0 +1,456 @@
+{
+  "annotations": { "list": [] },
+  "description": "Dashboard avanzado: detección de anomalías, correlación logs-métricas, heatmap de latencia, análisis comparativo CPU vs latencia",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "title": "← Observabilidad General", "url": "/d/futurex-observability", "type": "link", "icon": "external link" },
+    { "title": "Errores vs Éxitos", "url": "/d/futurex-errors-success", "type": "link", "icon": "external link" }
+  ],
+  "panels": [
+    {
+      "title": "🚨 Detección de Anomalías — Tasa de Error (umbral 5%)",
+      "description": "Serie temporal de tasa de error HTTP. La banda roja indica umbral de alerta (5%). Picos sobre la banda indican comportamiento anormal.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "(sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\"}[2m])) / sum(rate(otel_http_server_request_duration_seconds_count[2m]))) * 100",
+          "legendFormat": "Tasa de Error %",
+          "refId": "A"
+        },
+        {
+          "expr": "vector(5)",
+          "legendFormat": "Umbral de Alerta (5%)",
+          "refId": "B"
+        },
+        {
+          "expr": "vector(10)",
+          "legendFormat": "Umbral Crítico (10%)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "auto" },
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Umbral de Alerta (5%)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }, { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } }, { "id": "custom.lineWidth", "value": 1 }] },
+          { "matcher": { "id": "byName", "options": "Umbral Crítico (10%)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }, { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } }, { "id": "custom.lineWidth", "value": 1 }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📈 Correlación: Latencia P95 vs Tasa de Error",
+      "description": "Compara latencia P95 (eje izquierdo ms) con tasa de error % (eje derecho). Correlación positiva indica sobrecarga del sistema.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "P95 Latencia (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\"}[5m])) / sum(rate(otel_http_server_request_duration_seconds_count[5m]))) * 100",
+          "legendFormat": "Tasa Error %",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "ms"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Tasa Error %" }, "properties": [{ "id": "unit", "value": "percent" }, { "id": "custom.axisPlacement", "value": "right" }, { "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🔥 Correlación: CPU JVM vs Latencia Promedio",
+      "description": "Relación entre uso de CPU (%) y tiempo de respuesta (ms) por servicio. CPU alto debería correlacionar con mayor latencia.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "otel_jvm_cpu_recent_utilization_ratio{exported_job=\"fx-course-service\"} * 100",
+          "legendFormat": "CPU fx-course-service (%)",
+          "refId": "A"
+        },
+        {
+          "expr": "otel_jvm_cpu_recent_utilization_ratio{exported_job=\"fx-catalog-service\"} * 100",
+          "legendFormat": "CPU fx-catalog-service (%)",
+          "refId": "B"
+        },
+        {
+          "expr": "(sum(rate(otel_http_server_request_duration_seconds_sum[5m])) / sum(rate(otel_http_server_request_duration_seconds_count[5m]))) * 1000",
+          "legendFormat": "Latencia Promedio (ms)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Latencia Promedio (ms)" }, "properties": [{ "id": "unit", "value": "ms" }, { "id": "custom.axisPlacement", "value": "right" }, { "id": "color", "value": { "fixedColor": "#FADE2A", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📊 Throughput por Endpoint — Análisis Comparativo (req/min)",
+      "description": "Comparación de solicitudes por minuto entre endpoints. Identifica endpoints más concurridos y posibles cuellos de botella.",
+      "type": "bargauge",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sort_desc(sum(rate(otel_http_server_request_duration_seconds_count[5m])) by (http_route) * 60)",
+          "legendFormat": "{{http_route}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-BlYlRd" },
+          "unit": "reqpm",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+    {
+      "title": "⚡ Latencia Percentiles — P50 vs P95 vs P99",
+      "description": "Comparación de latencia en percentiles 50, 95 y 99. Diferencia grande entre P50 y P99 indica tail latency / variabilidad alta.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 16 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "P50 (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "P95 (ms)",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "P99 (ms)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "P99 (ms)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#F2495C", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P95 (ms)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "P50 (ms)" }, "properties": [{ "id": "color", "value": { "fixedColor": "#73BF69", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "💾 Correlación: Heap JVM vs Throughput",
+      "description": "Relación entre memoria heap usada y solicitudes por segundo. Memoria alta puede indicar presión de GC que afecta el rendimiento.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-course-service\"}) / 1024 / 1024",
+          "legendFormat": "Heap course (MB)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-catalog-service\"}) / 1024 / 1024",
+          "legendFormat": "Heap catalog (MB)",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count[1m])) * 60",
+          "legendFormat": "Requests/min (total)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "decmbytes"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Requests/min (total)" }, "properties": [{ "id": "unit", "value": "reqpm" }, { "id": "custom.axisPlacement", "value": "right" }, { "id": "color", "value": { "fixedColor": "#5794F2", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📋 Tabla: Métricas por Endpoint (instantáneo)",
+      "description": "Tabla comparativa con latencia promedio, P95, requests totales y tasa de error por endpoint. Identifica endpoints problemáticos de un vistazo.",
+      "type": "table",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "sort_desc(sum(rate(otel_http_server_request_duration_seconds_count[5m])) by (http_route, exported_job, http_response_status_code) * 60)",
+          "legendFormat": "{{exported_job}} {{http_route}} {{http_response_status_code}}",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqpm",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 15 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "sortBy": [{ "displayName": "Value", "desc": true }],
+        "footer": { "show": false }
+      },
+      "transformations": [
+        { "id": "organize", "options": { "renameByName": { "exported_job": "Servicio", "http_route": "Endpoint", "http_response_status_code": "Status", "Value": "Req/min" } } }
+      ]
+    },
+    {
+      "title": "🔄 Tasa de Requests: Catálogo vs Cursos (comparativo)",
+      "description": "Compara directamente el throughput de ambos microservicios. Divergencia sostenida puede indicar degradación en uno de ellos.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{exported_job=\"fx-catalog-service\"}[1m])) * 60",
+          "legendFormat": "fx-catalog-service (req/min)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{exported_job=\"fx-course-service\"}[1m])) * 60",
+          "legendFormat": "fx-course-service (req/min)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 20 },
+          "unit": "reqpm",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🌡️ Gauge: Estado Actual del Sistema",
+      "description": "Vista instantánea del estado de salud del sistema. Verde = normal, Amarillo = advertencia, Rojo = crítico.",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "(sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\"}[5m])) / sum(rate(otel_http_server_request_duration_seconds_count[5m]))) * 100",
+          "legendFormat": "Error Rate %",
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)) * 1000",
+          "legendFormat": "P95 Latencia (ms)",
+          "refId": "B",
+          "instant": true
+        },
+        {
+          "expr": "max(otel_jvm_cpu_recent_utilization_ratio) * 100",
+          "legendFormat": "CPU Max JVM %",
+          "refId": "C",
+          "instant": true
+        },
+        {
+          "expr": "max(sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\"}) by (exported_job) / sum(otel_jvm_memory_committed_bytes{jvm_memory_type=\"heap\"}) by (exported_job)) * 100",
+          "legendFormat": "Heap Utilization %",
+          "refId": "D",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "red", "value": 70 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "P95 Latencia (ms)" }, "properties": [{ "id": "unit", "value": "ms" }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 500 }, { "color": "red", "value": 1500 }] } }] }
+        ]
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "title": "🗄️ Conexiones DB: Activas vs Idle (fx-course-service)",
+      "description": "Monitoreo del pool de conexiones HikariCP. Conexiones 'used' alta puede indicar contención de BD y degradación de rendimiento.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 40 },
+      "id": 10,
+      "targets": [
+        {
+          "expr": "otel_db_client_connections_usage{exported_job=\"fx-course-service\", state=\"used\"}",
+          "legendFormat": "Conexiones Activas (used)",
+          "refId": "A"
+        },
+        {
+          "expr": "otel_db_client_connections_usage{exported_job=\"fx-course-service\", state=\"idle\"}",
+          "legendFormat": "Conexiones Idle",
+          "refId": "B"
+        },
+        {
+          "expr": "otel_db_client_connections_max{exported_job=\"fx-course-service\"}",
+          "legendFormat": "Máximo del Pool",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Máximo del Pool" }, "properties": [{ "id": "color", "value": { "fixedColor": "#808080", "mode": "fixed" } }, { "id": "custom.lineStyle", "value": { "fill": "dash" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🧵 Threads JVM por Servicio",
+      "description": "Número de threads activos en la JVM. Crecimiento sostenido puede indicar thread leak. Correlacionar con picos de latencia.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 40 },
+      "id": 11,
+      "targets": [
+        {
+          "expr": "otel_jvm_thread_count{exported_job=\"fx-course-service\"}",
+          "legendFormat": "Threads fx-course-service",
+          "refId": "A"
+        },
+        {
+          "expr": "otel_jvm_thread_count{exported_job=\"fx-catalog-service\"}",
+          "legendFormat": "Threads fx-catalog-service",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 37,
+  "tags": ["futurex", "advanced", "anomaly", "correlation"],
+  "time": { "from": "now-3h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FutureX - Avanzado: Anomalías y Correlación",
+  "uid": "futurex-advanced",
+  "version": 1
+}

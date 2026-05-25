@@ -1,0 +1,269 @@
+{
+  "annotations": { "list": [] },
+  "description": "Dashboard principal de observabilidad - Vista general de métricas, latencia, errores, recursos y logs",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "title": "Ejemplo 1: Requests", "url": "/d/futurex-requests-endpoint", "type": "link", "icon": "external link" },
+    { "title": "Ejemplo 2: CPU/Mem", "url": "/d/futurex-resources", "type": "link", "icon": "external link" },
+    { "title": "Ejemplo 3: Errores", "url": "/d/futurex-errors-success", "type": "link", "icon": "external link" }
+  ],
+  "panels": [
+    {
+      "title": "📊 Solicitudes/min por Endpoint",
+      "description": "Solicitudes HTTP por minuto agrupadas por ruta (http_route) - generadas por Java Agent",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count[1m])) by (http_route) * 60",
+          "legendFormat": "{{http_route}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 20, "showPoints": "auto" },
+          "unit": "reqpm"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "⏱️ Latencia Promedio por Endpoint (ms)",
+      "description": "Tiempo promedio de respuesta por endpoint calculado en ventana de 5 minutos",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "(rate(otel_http_server_request_duration_seconds_sum[5m]) / rate(otel_http_server_request_duration_seconds_count[5m])) * 1000",
+          "legendFormat": "{{http_route}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 500 },
+              { "color": "red", "value": 2000 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🔴🟢 Errores vs Éxitos",
+      "description": "Distribución de respuestas por código de status HTTP",
+      "type": "piechart",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"2..\"}[5m]))",
+          "legendFormat": "Exitosas (2xx)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"4..\"}[5m]))",
+          "legendFormat": "Errores Cliente (4xx)",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[5m]))",
+          "legendFormat": "Errores Servidor (5xx)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right" },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "title": "📈 Total Solicitudes por Servicio (1h)",
+      "description": "Total acumulado de solicitudes por servicio en la última hora",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{exported_job=\"fx-catalog-service\"}[1h]))",
+          "legendFormat": "fx-catalog-service",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{exported_job=\"fx-course-service\"}[1h]))",
+          "legendFormat": "fx-course-service",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 10 },
+              { "color": "orange", "value": 100 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "title": "🎯 Latencia P95",
+      "description": "Percentil 95 de latencia por servicio - peor caso para el 95% de solicitudes",
+      "type": "gauge",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(otel_http_server_request_duration_seconds_bucket[$__range])) by (le, exported_job))",
+          "legendFormat": "{{exported_job}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "max": 5,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        }
+      },
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true }
+    },
+    {
+      "title": "🖥️ CPU por Servicio (%)",
+      "description": "Uso de CPU de la JVM de cada microservicio",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 16 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "otel_jvm_cpu_recent_utilization_ratio * 100",
+          "legendFormat": "{{exported_job}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 20, "showPoints": "never" },
+          "unit": "percent", "min": 0
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🧠 Memoria Heap por Servicio",
+      "description": "Memoria heap usada por cada microservicio",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 16 },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\"}) by (exported_job)",
+          "legendFormat": "{{exported_job}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never" },
+          "unit": "bytes"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📋 Logs Procesados (OTel Collector)",
+      "description": "Total de logs procesados por el OTel Collector y enviados a Elasticsearch. Ver detalle en Kibana: http://localhost:5601",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 16 },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "increase(otel_processedLogs_total[$__range])",
+          "legendFormat": "{{processor}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["opentelemetry", "futurex", "observability", "overview"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FutureX - Observabilidad General",
+  "uid": "futurex-observability",
+  "version": 2,
+  "refresh": "10s"
+}

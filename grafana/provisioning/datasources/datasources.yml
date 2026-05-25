@@ -1,0 +1,46 @@
+# =============================================================================
+# Grafana Datasources Provisioning
+# Configura automáticamente las fuentes de datos al iniciar Grafana
+# =============================================================================
+
+apiVersion: 1
+
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+datasources:
+  # Prometheus - Métricas de los microservicios vía OTel Collector
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: '10s'
+
+  # Elasticsearch - Logs recolectados por ELK stack
+  - name: Elasticsearch
+    type: elasticsearch
+    uid: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    database: "otel-logs-*"
+    editable: true
+    jsonData:
+      esVersion: "7.10.0"
+      timeField: "@timestamp"
+      logMessageField: "Body"
+      logLevelField: "log.level"
+      interval: "Daily"
+      maxConcurrentShardRequests: 5
+
+  # Jaeger - Trazas distribuidas
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true

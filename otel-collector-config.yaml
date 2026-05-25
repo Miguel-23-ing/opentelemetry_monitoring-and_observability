@@ -1,0 +1,67 @@
+# OpenTelemetry Collector Configuration
+# Pipeline central que recibe métricas, trazas y logs de los microservicios
+# y los exporta a Jaeger (trazas), Prometheus (métricas) y archivo (logs para ELK)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+    send_batch_max_size: 512
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+exporters:
+  # Exportador de trazas a Jaeger vía OTLP
+  otlp:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+
+  # Exportador de métricas para Prometheus (scrape endpoint)
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "otel"
+    const_labels:
+      environment: "development"
+
+  # Exportador de logs a archivo (consumido por Logstash -> Elasticsearch)
+  file:
+    path: /var/log/otel-collector.log
+
+  # Logging para depuración en consola del collector
+  logging:
+    verbosity: normal
+
+service:
+  pipelines:
+    # Pipeline de trazas distribuidas -> Jaeger
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp, logging]
+
+    # Pipeline de métricas -> Prometheus
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, logging]
+
+    # Pipeline de logs -> Archivo (Logstash lo lee y envía a Elasticsearch)
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file, logging]
+
+  telemetry:
+    logs:
+      level: "info"

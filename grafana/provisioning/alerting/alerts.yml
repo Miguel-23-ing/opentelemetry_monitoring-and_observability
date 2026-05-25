@@ -1,0 +1,217 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: FutureX Alertas
+    folder: FutureX
+    interval: 1m
+    rules:
+      - uid: fx-high-error-rate
+        title: "Alta Tasa de Errores HTTP"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: "(sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_code=~\"[45]..\"}[5m])) / sum(rate(otel_http_server_request_duration_seconds_count[5m]))) * 100"
+              refId: A
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [10]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "Tasa de errores HTTP supera el 10%"
+          description: "Mas del 10% de las solicitudes estan fallando en los ultimos 5 minutos."
+        labels:
+          severity: warning
+          team: futurex
+
+      - uid: fx-high-latency
+        title: "Alta Latencia P95"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: "histogram_quantile(0.95, sum(rate(otel_http_server_request_duration_seconds_bucket[5m])) by (le)) * 1000"
+              refId: A
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [2000]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 3m
+        annotations:
+          summary: "Latencia P95 supera los 2 segundos"
+          description: "El 95% de las solicitudes estan tardando mas de 2 segundos."
+        labels:
+          severity: critical
+          team: futurex
+
+      - uid: fx-no-traffic
+        title: "Sin Trafico HTTP"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: "sum(rate(otel_http_server_request_duration_seconds_count[5m]))"
+              refId: A
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.001]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: "No se detecta trafico HTTP"
+          description: "No se han recibido solicitudes HTTP en los ultimos 10 minutos."
+        labels:
+          severity: info
+          team: futurex
+
+      - uid: fx-high-cpu
+        title: "CPU Alto en Microservicio"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: "max(otel_jvm_cpu_recent_utilization_ratio) * 100"
+              refId: A
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [85]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "CPU de JVM supera el 85%"
+          description: "Alguno de los microservicios tiene uso de CPU mayor al 85%."
+        labels:
+          severity: warning
+          team: futurex
+
+      - uid: fx-heap-pressure
+        title: "Presion de Memoria Heap"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: "max(sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\"}) by (exported_job) / sum(otel_jvm_memory_committed_bytes{jvm_memory_type=\"heap\"}) by (exported_job)) * 100"
+              refId: A
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [90]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "Heap JVM al 90%"
+          description: "Uso de heap supera el 90% del committed, riesgo de OutOfMemoryError."
+        labels:
+          severity: critical
+          team: futurex

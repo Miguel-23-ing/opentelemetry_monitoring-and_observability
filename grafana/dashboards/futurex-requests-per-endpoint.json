@@ -1,0 +1,172 @@
+{
+  "annotations": { "list": [] },
+  "description": "Dashboard 1: Solicitudes por minuto separadas por endpoint y servicio",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "📊 Solicitudes/min por Endpoint (Java Agent - Auto)",
+      "description": "Número de solicitudes HTTP por minuto agrupadas por http_route. Generado automáticamente por el Java Agent de OpenTelemetry.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count[1m])) by (http_route) * 60",
+          "legendFormat": "{{http_route}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 25,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "gradientMode": "scheme",
+            "stacking": { "mode": "none" }
+          },
+          "unit": "reqpm",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📊 Solicitudes/min por Endpoint — fx-catalog-service",
+      "description": "Requests por minuto al servicio de catálogo, desglosados por ruta HTTP (Java Agent).",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{exported_job=\"fx-catalog-service\"}[1m])) by (http_route) * 60",
+          "legendFormat": "Catálogo: {{http_route}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 20, "showPoints": "auto", "gradientMode": "scheme" },
+          "unit": "reqpm"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📊 Solicitudes/min por Endpoint — fx-course-service",
+      "description": "Requests por minuto al servicio de cursos, desglosados por ruta HTTP (Java Agent).",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "sum(rate(otel_http_server_request_duration_seconds_count{exported_job=\"fx-course-service\"}[1m])) by (http_route) * 60",
+          "legendFormat": "Cursos: {{http_route}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 20, "showPoints": "auto", "gradientMode": "scheme" },
+          "unit": "reqpm"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📈 Solicitudes Totales por Servicio (última hora)",
+      "description": "Número total acumulado de solicitudes por servicio en la última hora",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 17 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{exported_job=\"fx-catalog-service\"}[1h]))",
+          "legendFormat": "fx-catalog-service",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count{exported_job=\"fx-course-service\"}[1h]))",
+          "legendFormat": "fx-course-service",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 10 },
+              { "color": "orange", "value": 100 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "title": "📋 Solicitudes por Método HTTP",
+      "description": "Distribución de solicitudes por método HTTP (GET, POST, DELETE, etc.)",
+      "type": "piechart",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 17 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum(increase(otel_http_server_request_duration_seconds_count[1h])) by (http_request_method)",
+          "legendFormat": "{{http_request_method}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right" },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["opentelemetry", "futurex", "requests", "endpoints"],
+  "templating": { "list": [] },
+  "time": { "from": "now-3h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FutureX - Ejemplo 1: Solicitudes por Endpoint",
+  "uid": "futurex-requests-endpoint",
+  "version": 1,
+  "refresh": "10s"
+}

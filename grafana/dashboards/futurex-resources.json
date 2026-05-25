@@ -1,0 +1,256 @@
+{
+  "annotations": { "list": [] },
+  "description": "Dashboard 2: Uso de CPU, memoria y recursos JVM para ambos microservicios",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "🖥️ Uso de CPU por Servicio",
+      "description": "Utilización reciente de CPU reportada por la JVM para cada microservicio (0.0 = 0%, 1.0 = 100%)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "otel_jvm_cpu_recent_utilization_ratio{exported_job=\"fx-catalog-service\"} * 100",
+          "legendFormat": "fx-catalog-service",
+          "refId": "A"
+        },
+        {
+          "expr": "otel_jvm_cpu_recent_utilization_ratio{exported_job=\"fx-course-service\"} * 100",
+          "legendFormat": "fx-course-service",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 30,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          },
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🧠 Uso de Memoria JVM (Heap) por Servicio",
+      "description": "Memoria heap utilizada por la JVM en cada microservicio. Generada automáticamente por el Java Agent.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-catalog-service\"})",
+          "legendFormat": "fx-catalog-service (Heap usado)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-course-service\"})",
+          "legendFormat": "fx-course-service (Heap usado)",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(otel_jvm_memory_committed_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-catalog-service\"})",
+          "legendFormat": "fx-catalog-service (Heap committed)",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(otel_jvm_memory_committed_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-course-service\"})",
+          "legendFormat": "fx-course-service (Heap committed)",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 268435456 },
+              { "color": "red", "value": 536870912 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "🔢 Threads JVM por Servicio",
+      "description": "Número de threads activos en la JVM de cada microservicio",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 9 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "otel_jvm_thread_count{exported_job=\"fx-catalog-service\"}",
+          "legendFormat": "fx-catalog-service",
+          "refId": "A"
+        },
+        {
+          "expr": "otel_jvm_thread_count{exported_job=\"fx-course-service\"}",
+          "legendFormat": "fx-course-service",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "title": "📊 CPU Actual (Gauge)",
+      "description": "Uso actual de CPU por servicio en formato gauge",
+      "type": "gauge",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 9 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "otel_jvm_cpu_recent_utilization_ratio{exported_job=\"fx-catalog-service\"} * 100",
+          "legendFormat": "Catálogo",
+          "refId": "A"
+        },
+        {
+          "expr": "otel_jvm_cpu_recent_utilization_ratio{exported_job=\"fx-course-service\"} * 100",
+          "legendFormat": "Cursos",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "orange", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true }
+    },
+    {
+      "title": "📊 Memoria Heap Actual (Gauge)",
+      "description": "Porcentaje de uso de memoria heap actual = used / committed",
+      "type": "gauge",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 9 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "(sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-catalog-service\"}) / sum(otel_jvm_memory_committed_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-catalog-service\"})) * 100",
+          "legendFormat": "Catálogo Heap %",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum(otel_jvm_memory_used_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-course-service\"}) / sum(otel_jvm_memory_committed_bytes{jvm_memory_type=\"heap\", exported_job=\"fx-course-service\"})) * 100",
+          "legendFormat": "Cursos Heap %",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "orange", "value": 80 },
+              { "color": "red", "value": 95 }
+            ]
+          }
+        }
+      },
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true }
+    },
+    {
+      "title": "🗑️ Garbage Collection - Duración (ms)",
+      "description": "Duración acumulada de Garbage Collection por servicio. Picos indican alta presión de memoria.",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 16 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "rate(otel_jvm_gc_duration_seconds_sum{exported_job=\"fx-catalog-service\"}[5m]) * 1000",
+          "legendFormat": "fx-catalog GC {{jvm_gc_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(otel_jvm_gc_duration_seconds_sum{exported_job=\"fx-course-service\"}[5m]) * 1000",
+          "legendFormat": "fx-course GC {{jvm_gc_name}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 1, "fillOpacity": 15, "showPoints": "never" },
+          "unit": "ms"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["opentelemetry", "futurex", "resources", "jvm", "cpu", "memory"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FutureX - Ejemplo 2: CPU y Memoria",
+  "uid": "futurex-resources",
+  "version": 1,
+  "refresh": "10s"
+}

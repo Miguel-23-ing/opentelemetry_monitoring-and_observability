@@ -1,0 +1,25 @@
+# Prometheus Configuration
+# Scrapea métricas del OpenTelemetry Collector expuestas en el puerto 8889
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Reglas de alertas (opcionales)
+rule_files:
+  - "/etc/prometheus/alert_rules.yml"
+
+scrape_configs:
+  # Métricas del OpenTelemetry Collector (métricas de los microservicios)
+  - job_name: 'otel-collector'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['otel-collector:8889']
+        labels:
+          source: 'opentelemetry'
+
+  # Métricas internas de Prometheus
+  - job_name: 'prometheus'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['localhost:9090']
