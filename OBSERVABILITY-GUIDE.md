@@ -790,30 +790,121 @@ Visibles en: http://localhost:9090/alerts
 
 ## 13. Queries Documentados
 
-### Prometheus (PromQL) — 16 queries
+> Documentación completa con explicaciones en:
+> - [`docs/queries-prometheus.md`](docs/queries-prometheus.md)
+> - [`docs/queries-elasticsearch.md`](docs/queries-elasticsearch.md)
 
-Archivo: [docs/queries-prometheus.md](docs/queries-prometheus.md)
+---
 
-Incluye queries para:
-- Latencia promedio por endpoint
-- Solicitudes por minuto
-- Tasa de errores HTTP
-- Percentiles P95 y P99
-- Uso de CPU y memoria JVM
-- Threads activos
-- Métricas personalizadas
-- Métricas internas del Collector
+### Prometheus (PromQL) — 18 queries
 
-### Elasticsearch — 10 queries
+Ejecutar en: **http://localhost:9090** → pestaña Graph
 
-Archivo: [docs/queries-elasticsearch.md](docs/queries-elasticsearch.md)
+| # | Query resumido | Qué muestra | Dónde verlo |
+|---|----------------|-------------|-------------|
+| 1 | `rate(sum/count)*1000` | Latencia promedio por endpoint (ms) | Prometheus Graph / Grafana panel 2 |
+| 2 | `rate(count[1m])*60 by (http_route)` | Solicitudes/min por endpoint | Prometheus Graph / Grafana panel 1 |
+| 3 | `rate(count[1m]) by (exported_job)` | Req/s por servicio | Prometheus Graph |
+| 4 | `increase([1h])` | Total requests en la última hora | Prometheus Graph / Grafana panel 4 |
+| 5 | `5xx / total * 100` | Tasa de errores 5xx (%) | Prometheus Graph / Grafana Errores dashboard |
+| 6 | `[45]xx / total * 100` | Tasa de errores 4xx+5xx combinados | Prometheus Graph |
+| 7 | `histogram_quantile(0.95)` | Latencia P95 por servicio | Prometheus Graph / Grafana panel 5 |
+| 8 | `histogram_quantile(0.99) by (http_route)` | Latencia P99 por endpoint | Prometheus Graph / Grafana Avanzado |
+| 9 | `jvm_cpu_recent_utilization * 100` | CPU por servicio (%) | Prometheus Graph / Grafana panel 6 |
+| 10 | `jvm_memory_used{heap} by (exported_job)` | Heap usado por servicio | Prometheus Graph / Grafana panel 7 |
+| 11 | `heap_used / heap_committed * 100` | % de heap ocupado | Prometheus Graph / Grafana Recursos |
+| 12 | `jvm_thread_count` | Threads activos por servicio | Prometheus Graph / Grafana Recursos |
+| 13 | `sum(rate(count[1m]))` | Throughput total del sistema | Prometheus Graph |
+| 14 | `http_client rate(sum/count)` | Latencia llamadas catalog→course | Prometheus Graph / Grafana Avanzado |
+| 15 | `db_client_connections_usage/max` | Pool conexiones MySQL (HikariCP) | Prometheus Graph |
+| 16 | `otel_processedLogs_total` etc. | Métricas internas del OTel Collector | Prometheus Graph / Grafana panel 8 |
+| 17 | `[45]xx by (http_route, exported_job)` | Errores desglosados por endpoint y servicio | Prometheus Graph |
+| 18 | `by catalog` vs `by course` | Comparación de carga entre servicios | Prometheus Graph |
 
-Incluye queries para:
-- Logs ERROR/WARN por servicio
-- Búsqueda por traceId (correlación con Jaeger)
-- Correlación errores-endpoints
-- Agregaciones por servicio y nivel
-- Full-text search con highlighting
+---
+
+### Elasticsearch (JSON DSL + KQL) — 12 queries
+
+Ejecutar en: **http://localhost:5601** → Dev Tools  
+O directamente contra: **http://localhost:9200**
+
+| # | Query | Qué muestra | Dónde verlo |
+|---|-------|-------------|-------------|
+| 1 | `bool should [ERROR, WARNING]` | Logs de error/warning en 24h | Kibana Dev Tools / Discover |
+| 2 | `match service.name + range 2h` | Todos los logs de un servicio | Kibana Discover: `service.name: "fx-catalog-service"` |
+| 3 | `should [WARNING, WARN]` | Logs de advertencia | Kibana Discover: `log.level: WARNING` |
+| 4 | `term traceId: "..."` | Logs de una traza específica (correlación con Jaeger) | Kibana Dev Tools → pegar traceId de Jaeger |
+| 5 | `bool must [ERROR + Body: "catalog"]` | Errores de un endpoint específico | Kibana Dev Tools / Discover: `log.level: ERROR AND Body: "/catalog"` |
+| 6 | `aggs: terms(service) + date_histogram` | Errores por servicio y por hora | Kibana Dev Tools |
+| 7 | `aggs: terms(service) > terms(level)` | Volumen de logs con sub-agrupación por nivel | Kibana Dev Tools / Kibana Dashboard panel |
+| 8 | `aggs: terms(level) + histogram(severityNumber)` | Distribución por nivel de severidad | Kibana Dev Tools / Kibana Dashboard pie chart |
+| 9 | `range: now-15m` | Logs recientes (verificación en tiempo real) | Kibana Discover → ajustar rango temporal |
+| 10 | `match Body + highlight` | Full-text search con resaltado | Kibana Dev Tools / Discover: `Body: "course"` |
+| 11 | `exists traceId + must_not traceId:""` | Solo logs de requests HTTP reales | Kibana Discover: `traceId: *` |
+| 12 | `date_histogram(1m) > terms(service)` | Timeline logs por minuto por servicio | Kibana Dev Tools / Kibana Dashboard bar chart |
+
+---
+
+### Grafana — 5 dashboards
+
+| Dashboard | URL | Paneles | Qué muestra |
+|-----------|-----|---------|-------------|
+| Observabilidad General | http://localhost:3000/d/futurex-observability | 8 | Overview completo: tráfico, latencia, errores, CPU, heap, logs |
+| Requests por Endpoint | http://localhost:3000/d/futurex-requests-endpoint | 5 | Req/min por endpoint, método HTTP, desglose por servicio |
+| CPU y Memoria | http://localhost:3000/d/futurex-resources | 6 | CPU JVM, heap, threads, GC por servicio |
+| Errores vs Éxitos | http://localhost:3000/d/futurex-errors-success | 5 | Tasa de error %, distribución status codes, comparativa |
+| Avanzado / Anomalías | http://localhost:3000/d/futurex-advanced | 6 | P50/P95/P99, correlación latencia/CPU/errores, anomalías |
+
+---
+
+### Alertas en Prometheus — 5 reglas
+
+Ver estado en: **http://localhost:9090/alerts**  
+Disparar manualmente: `powershell -ExecutionPolicy Bypass -File generate-errors.ps1`
+
+| Alerta | Condición | `for` | Severidad |
+|--------|-----------|-------|-----------|
+| `HighErrorRate` | 4xx+5xx > 10% del total | 2 min | warning |
+| `HighLatency` | P95 > 2 segundos | 3 min | critical |
+| `NoTraffic` | Sin requests en 10 min | 10 min | info |
+| `CatalogHighLatency` | Latencia catalog > 1s promedio | 2 min | warning |
+| `CourseHighLatency` | Latencia course > 1s promedio | 2 min | warning |
+
+---
+
+### Kibana — configuración avanzada provisionada
+
+| Componente | Tipo | Dónde verlo |
+|------------|------|-------------|
+| Dashboard con 6 paneles | Dashboard | http://localhost:5601/app/dashboards#/view/futurex-kibana-logs |
+| Volumen de logs en tiempo | Bar chart (por minuto) | Panel 1 del dashboard Kibana |
+| Distribución por nivel | Pie chart | Panel 2 del dashboard Kibana |
+| Logs por servicio | Bar horizontal | Panel 3 del dashboard Kibana |
+| Conteo total de logs | Metric | Panel 4 del dashboard Kibana |
+| Tabla últimos logs | Data table | Panel 5/6 del dashboard Kibana |
+| Saved search con traceId | Discover | Menú → Discover → Open → `FutureX - Logs con TraceId` |
+| Index pattern `otel-logs-*` | Management | http://localhost:5601/app/management/kibana/indexPatterns |
+
+---
+
+### Dónde ver cada cosa
+
+| Quiero ver... | Herramienta | URL directa |
+|---------------|-------------|-------------|
+| Trazas distribuidas completas con spans y waterfall | **Jaeger** | http://localhost:16686 |
+| Latencia P95, CPU, heap en tiempo real | **Grafana** | http://localhost:3000/d/futurex-observability |
+| Tasa de errores por endpoint | **Grafana** | http://localhost:3000/d/futurex-errors-success |
+| Comparar carga entre servicios | **Grafana** | http://localhost:3000/d/futurex-requests-endpoint |
+| GC, threads, pool de conexiones | **Grafana** | http://localhost:3000/d/futurex-resources |
+| Anomalías y correlación avanzada | **Grafana** | http://localhost:3000/d/futurex-advanced |
+| Estado de las alertas | **Prometheus** | http://localhost:9090/alerts |
+| Métricas raw del Collector | **Prometheus** | http://localhost:8889/metrics |
+| Logs de error de un servicio | **Kibana** | http://localhost:5601/app/discover → `log.level: ERROR` |
+| Logs asociados a una traza | **Kibana** | Dev Tools → query 4 con traceId de Jaeger |
+| Distribución de logs por nivel | **Kibana** | http://localhost:5601/app/dashboards#/view/futurex-kibana-logs |
+| Todos los logs en tiempo real | **Kibana** | Discover → rango "Last 15 minutes" |
+| Estado del cluster Elasticsearch | **Elasticsearch** | http://localhost:9200/_cat/indices?v |
+| Correlación log ↔ traza | **Jaeger + Kibana** | Jaeger: copiar traceId → Kibana Discover: `traceId: "VALOR"` |
 
 ---
 
