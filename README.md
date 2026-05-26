@@ -1,34 +1,39 @@
-# Guía de Observabilidad — FutureX Microservices
+# Observabilidad sobre Microservicios con OpenTelemetry
 
-> **Documento:** Guía Técnica de Observabilidad con OpenTelemetry  
-> **Versión:** 1.0  
-> **Stack:** Java 17 · Spring Boot 3.3.3 · OpenTelemetry · Prometheus · Grafana · Jaeger · ELK  
-> **Servicios:** `fx-course-service` (8001) · `fx-catalog-service` (8002)
+> **Tipo:** Proyecto de taller académico — Implementación completa de observabilidad  
+> **Stack:** Java 17 · Spring Boot 3.3.3 · OpenTelemetry Java Agent · Prometheus · Grafana · Jaeger · ELK  
+> **Servicios instrumentados:** `fx-course-service` (puerto 8001) · `fx-catalog-service` (puerto 8002)  
+> **Validado:** Mayo 2026
+
+Este repositorio documenta la implementación de una solución de observabilidad completa sobre dos microservicios Java que se comunican entre sí. El objetivo es cubrir los tres pilares de la observabilidad moderna — **trazas distribuidas**, **métricas** y **logs estructurados** — utilizando OpenTelemetry como capa de instrumentación unificada que alimenta múltiples backends especializados, sin dependencia de un proveedor específico (*vendor lock-in*).
 
 ---
 
 ## Tabla de Contenidos
 
-1. [Arquitectura](#1-arquitectura)
+1. [Arquitectura del Sistema](#1-arquitectura-del-sistema)
 2. [Stack Tecnológico](#2-stack-tecnológico)
-3. [Inicio Rápido](#3-inicio-rápido)
-4. [URLs de Acceso](#4-urls-de-acceso)
-5. [Jaeger — Trazas Distribuidas](#5-jaeger--trazas-distribuidas)
-6. [Prometheus — Métricas](#6-prometheus--métricas)
-7. [Grafana — Dashboards](#7-grafana--dashboards)
-8. [Kibana — Logs](#8-kibana--logs)
+3. [Puesta en Marcha](#3-puesta-en-marcha)
+4. [URLs y Puntos de Acceso](#4-urls-y-puntos-de-acceso)
+5. [Trazas Distribuidas — Jaeger](#5-trazas-distribuidas--jaeger)
+6. [Métricas — Prometheus](#6-métricas--prometheus)
+7. [Dashboards — Grafana](#7-dashboards--grafana)
+8. [Logs Estructurados — Kibana y Elasticsearch](#8-logs-estructurados--kibana-y-elasticsearch)
 9. [Endpoints de los Microservicios](#9-endpoints-de-los-microservicios)
-10. [OpenTelemetry Collector](#10-opentelemetry-collector)
-11. [Instrumentación del Código](#11-instrumentación-del-código)
-12. [Alertas](#12-alertas)
-13. [Queries Documentados](#13-queries-documentados)
+10. [OpenTelemetry Collector — Pipeline Central](#10-opentelemetry-collector--pipeline-central)
+11. [Estrategia de Instrumentación](#11-estrategia-de-instrumentación)
+12. [Reglas de Alerta](#12-reglas-de-alerta)
+13. [Consultas de Referencia](#13-consultas-de-referencia)
 14. [Estructura del Proyecto](#14-estructura-del-proyecto)
-15. [Solución de Problemas](#15-solución-de-problemas)
-16. [Guía de Validación Completa](#16-guía-de-validación-completa)
+15. [Solución de Problemas Comunes](#15-solución-de-problemas-comunes)
+16. [Guía de Validación](#16-guía-de-validación)
+17. [Resumen de Implementación](#17-resumen-de-implementación)
 
 ---
 
-## 1. Arquitectura
+## 1. Arquitectura del Sistema
+
+El sistema está compuesto por dos microservicios Java instrumentados con el OpenTelemetry Java Agent. Toda la señal de telemetría — trazas, métricas y logs — es enviada vía protocolo OTLP a un componente central denominado **OTel Collector**, el cual actúa como pipeline de procesamiento y distribución hacia los backends especializados.
 
 ```
 ┌─────────────────┐     ┌─────────────────┐
@@ -73,12 +78,12 @@
 
 ### Flujo de datos
 
-1. Los microservicios envían telemetría (trazas, métricas, logs) al **OTel Collector** via OTLP HTTP (puerto 4320).
-2. El Collector procesa y distribuye:
-   - **Trazas** → Jaeger (almacena y visualiza trazas distribuidas)
-   - **Métricas** → Prometheus (scrapea el endpoint `/metrics` del Collector en :8889)
-   - **Logs** → Archivo JSON → Logstash lee el archivo → Elasticsearch indexa → Kibana visualiza
-3. **Grafana** conecta a Prometheus, Elasticsearch y Jaeger como datasources para dashboards unificados.
+1. Los microservicios envían telemetría vía OTLP gRPC al **OTel Collector** (puerto 4317 interno, mapeado al 4319 del host).
+2. El Collector procesa y distribuye la señal por tipo:
+   - **Trazas** → Jaeger, para almacenamiento y visualización de trazas distribuidas.
+   - **Métricas** → Prometheus, que realiza scraping del endpoint `/metrics` expuesto por el Collector en el puerto 8889.
+   - **Logs** → Archivo JSON en disco → Logstash parsea e ingesta → Elasticsearch indexa → Kibana visualiza.
+3. **Grafana** se conecta a Prometheus, Elasticsearch y Jaeger como fuentes de datos para dashboards unificados.
 
 ---
 
@@ -101,28 +106,23 @@
 
 ---
 
-## 3. Inicio Rápido
+## 3. Puesta en Marcha
 
-### Paso 1: Levantar toda la infraestructura
+### Paso 1 — Levantar la infraestructura
+
+El siguiente comando inicializa los **10 contenedores** del stack: Jaeger, OTel Collector, Prometheus, Grafana, Elasticsearch, Logstash, Kibana, MySQL, `fx-course-service` y `fx-catalog-service`.
 
 ```bash
 docker compose up -d
 ```
 
-Esto levanta **8 contenedores**: Jaeger, OTel Collector, Prometheus, Grafana, Elasticsearch, Logstash, Kibana y MySQL.
-
-Verificar que todos estén corriendo:
+Estado esperado de los contenedores:
 ```bash
 docker compose ps
+# Resultado esperado: todos los servicios en estado Up o Up (healthy)
 ```
 
-Esperar a que todos reporten `healthy`:
-```bash
-# Debe mostrar: jaeger(healthy), prometheus(healthy), elasticsearch(healthy),
-# kibana(healthy), mysql(healthy), grafana(Up), logstash(Up), otel-collector(Up)
-```
-
-### Paso 2: Compilar los microservicios
+### Paso 2 — Compilar los microservicios
 
 ```bash
 # Compilar fx-course-service
@@ -164,9 +164,11 @@ java -javaagent:opentelemetry-javaagent.jar \
      -jar part0-JaegerCourseCatalog/target/FutureXCourseCatalog-0.0.1-SNAPSHOT.jar
 ```
 
-> **Windows (PowerShell):** Envolver cada `-D` en comillas: `"-Dotel.service.name=fx-course-service"`
+> En PowerShell, cada flag `-D` debe estar entre comillas: `"-Dotel.service.name=fx-course-service"`
 
-### Paso 4: Generar tráfico
+### Paso 4 — Generar tráfico de prueba
+
+Los dashboards y métricas requieren tráfico real hacia los microservicios para producir datos observables. Se puede generar de forma manual o mediante el script incluido:
 
 ```bash
 # Listar todos los cursos
@@ -175,33 +177,29 @@ curl http://localhost:8001/courses
 # Obtener un curso por ID
 curl http://localhost:8001/courses/1
 
-# Catálogo (llama internamente a fx-course-service → traza distribuida)
+# Catálogo — genera una traza distribuida: fx-catalog-service llama a fx-course-service
 curl http://localhost:8002/catalog
 
-# Generar un 404 para ver errores
+# Solicitud que produce un error 404 — útil para validar métricas de error
 curl http://localhost:8001/courses/999
 ```
 
-O ejecutar el script incluido:
-```bash
-# PowerShell
+Alternativamente, mediante el script incluido:
+```powershell
 powershell -ExecutionPolicy Bypass -File generate-traffic.ps1
 ```
 
-### Paso 5: Verificar telemetría
+### Paso 5 — Verificar la telemetría
 
-Ejecutar el script de verificación:
-```bash
+```powershell
 powershell -ExecutionPolicy Bypass -File verify.ps1
 ```
 
 ---
 
-## 4. URLs de Acceso
+## 4. URLs y Puntos de Acceso
 
-### ⚡ Referencia rápida
-
-> Generar tráfico de prueba (ejecutar antes de explorar los dashboards):
+> Se recomienda generar tráfico antes de explorar los dashboards:
 > ```powershell
 > powershell -ExecutionPolicy Bypass -File generate-traffic-heavy.ps1
 > ```
@@ -256,7 +254,7 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 
 ---
 
-### 🔗 Tabla detallada — todos los enlaces
+### Tabla de referencia completa
 
 #### Herramientas de Observabilidad
 
@@ -321,20 +319,16 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 
 ---
 
-## 5. Jaeger — Trazas Distribuidas
+## 5. Trazas Distribuidas — Jaeger
 
 **URL:** http://localhost:16686
 
-### Qué ver en Jaeger
+### Exploración de trazas
 
-1. **Abrir** http://localhost:16686
-2. En el dropdown **"Service"**, seleccionar `fx-course-service` o `fx-catalog-service`
-3. Click en **"Find Traces"**
-4. Se muestra una lista de trazas con duración y número de spans
-5. Click en una traza para ver el **diagrama de cascada (waterfall)**:
-   - Cada barra horizontal es un **span** (una operación)
-   - Las trazas del catálogo muestran spans en **ambos servicios** (traza distribuida)
-   - Cada span tiene atributos: `http.method`, `http.route`, `http.response_status_code`
+En la interfaz de Jaeger, el campo **Service** permite seleccionar `fx-course-service` o `fx-catalog-service`. Al ejecutar **Find Traces**, el sistema devuelve una lista de trazas con su duración y número de spans. Al acceder a una traza individual se presenta el **diagrama de cascada (waterfall)**, donde:
+- Cada barra horizontal representa un **span** (una unidad de operación instrumentada).
+- Las trazas originadas en `fx-catalog-service` contienen spans de **ambos servicios**, evidenciando la propagación del contexto en llamadas distribuidas.
+- Cada span expone atributos semánticos: `http.method`, `http.route`, `http.response_status_code`.
 
 ### Servicios visibles en Jaeger
 
@@ -344,30 +338,23 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 | `fx-catalog-service` | Spans del catálogo + llamadas HTTP salientes al servicio de cursos |
 | `jaeger-all-in-one` | Spans internos de Jaeger |
 
-### Cómo usar el traceId para correlación
+### Correlación de trazas con logs
 
-1. En Jaeger, click en una traza → copiar el **Trace ID** (ej: `abc123def456...`)
-2. Usar ese ID en **Kibana** para buscar los logs de esa traza:
-   ```
-   traceId: "abc123def456..."
-   ```
-3. Usar ese ID en **Grafana** (datasource Jaeger) para ver la traza desde el dashboard
+El **Trace ID** de cualquier traza en Jaeger puede utilizarse para recuperar todos los logs asociados a esa solicitud en Kibana mediante el filtro KQL:
+```
+traceId: "abc123def456..."
+```
+Esta consulta retorna documentos de ambos microservicios que participaron en la misma traza distribuida, permitiendo correlacionar eventos de log con spans específicos.
 
 ---
 
-## 6. Prometheus — Métricas
+## 6. Métricas — Prometheus
 
 **URL:** http://localhost:9090
 
-### Qué ver en Prometheus
+La interfaz de Prometheus expone un editor de consultas PromQL en la pestaña **Graph**. Los resultados pueden visualizarse en modo tabla (valores puntuales) o en modo gráfico (serie temporal). Las métricas disponibles se listan en el endpoint de scraping http://localhost:8889/metrics.
 
-1. **Abrir** http://localhost:9090
-2. Ir a la pestaña **"Graph"**
-3. Pegar un query PromQL en el campo de texto
-4. Click en **"Execute"**
-5. Cambiar entre **"Table"** (valores puntuales) y **"Graph"** (serie temporal)
-
-### Queries rápidos para probar
+### Consultas de verificación básica
 
 ```promql
 # Ver todas las métricas HTTP del Java Agent
@@ -388,14 +375,9 @@ sum(rate(otel_http_server_request_duration_seconds_count{http_response_status_co
 sum(rate(otel_http_server_request_duration_seconds_count[5m])) * 100
 ```
 
-### Ver targets de scraping
+### Estado del scraping
 
-Abrir http://localhost:9090/targets para verificar que Prometheus está scrapeando el OTel Collector:
-- **otel-collector** → `http://otel-collector:8889/metrics` → State: **UP**
-
-### Ver alertas activas
-
-Abrir http://localhost:9090/alerts para ver el estado de las 5 reglas de alerta configuradas.
+En http://localhost:9090/targets puede verificarse que el target `otel-collector` apuntando a `http://otel-collector:8889/metrics` se encuentra en estado **UP**. Las cinco reglas de alerta configuradas son consultables en http://localhost:9090/alerts.
 
 ### Convención de nombres de métricas
 
@@ -418,17 +400,12 @@ Abrir http://localhost:9090/alerts para ver el estado de las 5 reglas de alerta 
 
 ---
 
-## 7. Grafana — Dashboards
+## 7. Dashboards — Grafana
 
 **URL:** http://localhost:3000  
-**Login:** admin / admin (saltar cambio de contraseña)
+**Credenciales:** admin / admin
 
-### Cómo acceder a los dashboards
-
-1. **Abrir** http://localhost:3000
-2. Login con **admin** / **admin**
-3. En el menú lateral izquierdo → **Dashboards** → carpeta **"FutureX"**
-4. Se listan los 4 dashboards
+Todos los dashboards están provisionados automáticamente al iniciar el contenedor y se encuentran en la carpeta **FutureX** del menú de Dashboards. No se requiere configuración manual.
 
 ### Dashboard 1: Observabilidad General
 
@@ -493,30 +470,22 @@ Abrir http://localhost:9090/alerts para ver el estado de las 5 reglas de alerta 
 
 ---
 
-## 8. Kibana — Logs
+## 8. Logs Estructurados — Kibana y Elasticsearch
 
 **URL:** http://localhost:5601
 
-> El index pattern, las visualizaciones, los saved searches y el dashboard están **preconfigurados** — no requieren configuración manual.
+El index pattern `otel-logs-*`, las visualizaciones, los saved searches y el dashboard principal están **provisionados automáticamente** mediante la Saved Objects API de Kibana al iniciar el contenedor. No se requiere configuración manual.
 
 ### Dashboard principal
 
-**→ http://localhost:5601/app/dashboards#/view/futurex-kibana-logs**
-
-Rango de tiempo por defecto: **Last 3 hours**. Contiene 6 paneles:
+**URL:** http://localhost:5601/app/dashboards#/view/futurex-kibana-logs  
+**Rango de tiempo por defecto:** Last 3 hours. Contiene 6 paneles:
 
 ---
 
 #### Panel 1 — FutureX: Volumen de Logs en el Tiempo *(Line chart)*
 
-**Qué muestra:** Cantidad de logs generados por cada microservicio a lo largo del tiempo, agrupados por intervalos automáticos.
-
-**Cómo leerlo:**
-- Eje X → tiempo. Eje Y → cantidad de logs por intervalo.
-- Dos líneas: `fx-course-service` y `fx-catalog-service`.
-- **Picos** indican momentos de alta actividad (tráfico intenso, errores en ráfaga, reinicio de servicio).
-- Línea plana y baja → el servicio está inactivo o con poco tráfico.
-- Si una línea desaparece → ese servicio no está enviando logs.
+Representa la cantidad de logs generados por cada microservicio a lo largo del tiempo, agrupados por intervalos automáticos. El eje X corresponde al tiempo y el eje Y a la cantidad de registros por intervalo. Picos sostenidos indican momentos de alta actividad; una línea plana o ausente puede indicar inactividad del servicio o interrupción en el envío de logs.
 
 **Campos usados:** `@timestamp`, `service.name.keyword`
 
@@ -524,13 +493,7 @@ Rango de tiempo por defecto: **Last 3 hours**. Contiene 6 paneles:
 
 #### Panel 2 — FutureX: Logs WARNING y ERROR en el Tiempo *(Area chart)*
 
-**Qué muestra:** Solo los logs con nivel `WARNING`, `ERROR` o `WARN`, separados por servicio y apilados en el tiempo.
-
-**Cómo leerlo:**
-- El área coloreada representa la densidad de errores/warnings.
-- Un pico en una franja específica indica que en ese momento ocurrieron errores (ej: fallos de exportación de métricas, excepciones).
-- `fx-course-service` tiende a generar más warnings porque exporta métricas de BD.
-- Útil para detectar degradaciones: si el área crece mientras el volumen total no cambia, la proporción de errores aumentó.
+Filtra y visualiza únicamente los registros con nivel `WARNING`, `ERROR` o `WARN`, apilados por servicio a lo largo del tiempo. Un incremento del área coloreada en ausencia de aumento en el volumen total indica un aumento relativo en la tasa de errores. `fx-course-service` produce habitualmente más warnings por las exportaciones de métricas de base de datos.
 
 **Campos usados:** `@timestamp`, `service.name.keyword`, filtro `log.level.keyword:(WARNING OR ERROR OR WARN)`
 
@@ -538,12 +501,7 @@ Rango de tiempo por defecto: **Last 3 hours**. Contiene 6 paneles:
 
 #### Panel 3 — FutureX: Logs por Servicio *(Pie chart)*
 
-**Qué muestra:** Proporción total de logs generados por cada microservicio en el período seleccionado.
-
-**Cómo leerlo:**
-- Una distribución cercana al 50/50 indica que ambos servicios están activos y recibiendo tráfico similar.
-- Si un servicio domina (ej: 80%), puede indicar más actividad, más errores, o que el otro servicio está casi inactivo.
-- En condiciones normales de tráfico: `fx-course-service` ≈ 51%, `fx-catalog-service` ≈ 49%.
+Muestra la proporción de logs generados por cada microservicio en el período seleccionado. Una distribución aproximada al 50/50 es indicativa de actividad equilibrada. En condiciones normales de tráfico se observa: `fx-course-service` ≈ 51%, `fx-catalog-service` ≈ 49%. Una asimetría pronunciada puede señalar inactividad en uno de los servicios o una tasa de errores elevada.
 
 **Campos usados:** `service.name.keyword`
 
@@ -551,14 +509,7 @@ Rango de tiempo por defecto: **Last 3 hours**. Contiene 6 paneles:
 
 #### Panel 4 — FutureX: Logs por Nivel de Severidad *(Bar chart)*
 
-**Qué muestra:** Distribución de todos los logs según su nivel de severidad OTLP.
-
-**Cómo leerlo:**
-- **WARNING** (barra más alta) → los más frecuentes; son los warnings internos del OTel Collector sobre exportación de métricas — son normales.
-- **INFO** → logs de negocio reales: `"Request received at /courses endpoint - traceId=..."` — estos son los logs de los microservicios.
-- **WARN** → variante adicional del nivel warning.
-- Si aparece **ERROR** con barra alta → hay un problema real en la aplicación.
-- La diferencia entre WARNING e INFO indica la proporción de ruido (interno) vs señal (negocio).
+Distribuye todos los registros según su nivel de severidad OTLP. El nivel **WARNING** predomina habitualmente; corresponde a advertencias internas del OTel Agent relacionadas con exportación de métricas y no representan errores de negocio. Los registros **INFO** corresponden a eventos de negocio reales de los microservicios (por ejemplo: `"Request received at /courses endpoint - traceId=..."`). La presencia de registros **ERROR** con volumen elevado debe interpretarse como indicador de fallo en la aplicación.
 
 **Campos usados:** `log.level.keyword`
 
@@ -566,13 +517,7 @@ Rango de tiempo por defecto: **Last 3 hours**. Contiene 6 paneles:
 
 #### Panel 5 — FutureX: Logs con TraceId *(Metric)*
 
-**Qué muestra:** Número total de logs que tienen un `traceId` válido y no vacío en el período seleccionado.
-
-**Cómo leerlo:**
-- Un número alto (ej: **834**) confirma que los logs de los microservicios están correctamente correlacionados con sus trazas distribuidas.
-- Si el valor es 0 → los microservicios no están enviando logs o el traceId no se está propagando.
-- Este número debe crecer al generar tráfico con `generate-traffic-heavy.ps1`.
-- Para correlacionar: copiar cualquier `traceId` de la tabla inferior y buscarlo en Jaeger.
+Contabiliza el total de registros que contienen un `traceId` válido y no vacío en el período seleccionado. Un valor elevado (p. ej., **834**) confirma que la propagación del contexto de traza es funcional entre los microservicios y el pipeline de logs. Un valor de 0 indica que los servicios no están generando logs o que el traceId no se está propagando correctamente.
 
 **Campos usados:** filtro `traceId:* AND NOT traceId:""`
 
@@ -580,9 +525,9 @@ Rango de tiempo por defecto: **Last 3 hours**. Contiene 6 paneles:
 
 #### Panel 6 — FutureX: Logs con TraceId para Correlación *(Tabla / Saved Search)*
 
-**Qué muestra:** Tabla de logs recientes que tienen traceId real, con columnas preconfiguradas.
+Tabla de registros recientes que poseen `traceId` real. Las columnas están preconfiguradas para facilitar la correlación con Jaeger:
 
-**Columnas visibles:**
+**Columnas disponibles:**
 
 | Columna | Contenido | Ejemplo |
 |---------|-----------|---------|
@@ -593,28 +538,22 @@ Rango de tiempo por defecto: **Last 3 hours**. Contiene 6 paneles:
 | `traceId` | ID de la traza distribuida (32 hex) | `c81df297bf4f9ae5c...` |
 | `Body` | Mensaje completo del log | `"Request received at /1 endpoint - traceId=c81df297..."` |
 
-**Cómo usar para correlación:**
-1. Identificar una fila de `fx-catalog-service` con nivel `INFO`
-2. Copiar el valor de `traceId`
-3. Abrir **Jaeger** → pegar el traceId → ver la traza distribuida completa con spans de ambos servicios
-4. O buscar en Kibana: `traceId: "c81df297bf4f9ae5c0801021cb288cf9"` → verás 2 docs (uno por servicio)
+**Uso para correlación:** Al copiar el valor de `traceId` de cualquier registro de `fx-catalog-service` y buscarlo en Jaeger, se obtiene la traza distribuida completa con spans de ambos servicios. La misma búsqueda en Kibana (`traceId: "c81df297bf4f9ae5c0801021cb288cf9"`) retorna exactamente dos documentos: uno por cada microservicio participante en la traza.
 
-### Saved Searches disponibles
+### Saved Searches provisionados
 
-Menú lateral → **Discover** → icono de carpeta → Open:
+Accesibles desde **Discover** → ícono de carpeta → Open:
 
 | Nombre | Filtro aplicado |
 |--------|----------------|
-| `FutureX - Logs con TraceId para Correlacion` | `traceId:*` (solo logs con traza real) |
+| `FutureX - Logs con TraceId para Correlacion` | `traceId:*` — registros con traza real |
 | `FutureX - Logs WARNING y ERROR` | `log.level.keyword:(WARNING OR ERROR OR WARN)` |
 
-### Ver todos los logs en Discover
+### Exploración libre en Discover
 
-1. Abrir **Discover** → seleccionar index pattern **`otel-logs-*`**
-2. Añadir columnas: click `+` junto a `service.name`, `log.level`, `Body`, `traceId`
-3. Rango de tiempo: ajustar a "Last 1 hour" o "Last 24 hours"
+En **Discover**, seleccionando el index pattern `otel-logs-*`, se puede añadir las columnas `service.name`, `log.level`, `Body` y `traceId` para una vista tabular completa. El selector de rango temporal permite ajustar el período de análisis entre "Last 1 hour" y "Last 24 hours".
 
-### Queries KQL verificados
+### Consultas KQL de referencia
 
 ```
 # Todos los logs INFO con traceId real (correlación con Jaeger)
@@ -652,9 +591,9 @@ traceId: "PEGAR_TRACE_ID_AQUI"
 | `spanId` | `text` | ID del span | `abc123...` |
 | `severityNumber` | `long` | Nivel numérico OTLP | 9=INFO, 13=WARNING, 17=ERROR |
 
-### Usar Dev Tools (queries avanzados sobre ES)
+### Consultas avanzadas mediante Dev Tools
 
-Menú lateral → **Dev Tools** → pegar:
+La consola de Kibana Dev Tools (accesible en http://localhost:5601/app/dev_tools#/console) permite ejecutar consultas JSON DSL directamente contra Elasticsearch:
 
 ```json
 GET otel-logs-*/_search
@@ -726,7 +665,7 @@ curl -X DELETE http://localhost:8001/courses/4
 
 ---
 
-## 10. OpenTelemetry Collector
+## 10. OpenTelemetry Collector — Pipeline Central
 
 ### Pipelines configuradas
 
@@ -740,43 +679,45 @@ curl -X DELETE http://localhost:8001/courses/4
 
 | Puerto host | Puerto container | Protocolo | Uso |
 |-------------|-----------------|-----------|-----|
-| 4320 | 4318 | HTTP OTLP | **Usar este** - Los microservicios envían telemetría aquí |
-| 4319 | 4317 | gRPC OTLP | Alternativa si se configura `-Dotel.exporter.otlp.protocol=grpc` |
-| 8889 | 8889 | HTTP | Prometheus scrapea métricas de aquí |
+| 4320 | 4318 | HTTP OTLP | Endpoint para microservicios ejecutados fuera de Docker |
+| 4319 | 4317 | gRPC OTLP | Endpoint gRPC; requiere `-Dotel.exporter.otlp.protocol=grpc` |
+| 8889 | 8889 | HTTP | Endpoint de scraping para Prometheus |
 
-> **IMPORTANTE:** El Java Agent v2.x usa HTTP por defecto. Siempre usar puerto **4320**, no 4319.
-
----
-
-## 11. Instrumentación del Código
-
-### Doble instrumentación: Automática + Manual
-
-1. **Automática (Java Agent):** El archivo `opentelemetry-javaagent.jar` instrumenta automáticamente:
-   - Todas las solicitudes HTTP entrantes y salientes
-   - JDBC / MySQL queries
-   - JVM metrics (CPU, memoria, threads, GC)
-   - Context propagation (W3C TraceContext)
-
-2. **Manual (código):** Añadida en los controllers:
-   - Métricas personalizadas: `fx_course_requests_total`, `fx_catalog_requests_total`
-   - Histogramas de duración: `fx_course_request_duration_ms`, `fx_catalog_request_duration_ms`
-   - Spans con atributos custom: `endpoint`, `service.name`, `http.method`
-   - Logging estructurado con `traceId`/`spanId`
-
-### OpenTelemetryConfig.java (compatibilidad con Agent)
-
-La clase detecta si el Java Agent ya registró un SDK global:
-- **Si el Agent está presente:** Reutiliza el SDK global (evita conflictos)
-- **Si no hay Agent:** Crea el SDK manualmente con exporters OTLP
+> El Java Agent v2.x emplea HTTP como protocolo por defecto. Al ejecutar los microservicios localmente, debe utilizarse el puerto **4320**; en el contexto de Docker Compose los servicios se comunican internamente en el puerto 4317 vía gRPC.
 
 ---
 
-## 12. Alertas
+## 11. Estrategia de Instrumentación
 
-### Prometheus Alert Rules
+### Instrumentación automática y manual
 
-Visibles en: http://localhost:9090/alerts
+La instrumentación combina dos capas complementarias:
+
+1. **Automática — OpenTelemetry Java Agent:** El archivo `opentelemetry-javaagent.jar`, adjunto al proceso Java mediante `-javaagent:`, instrumenta de forma transparente y sin modificación del código fuente:
+   - Solicitudes HTTP entrantes y salientes.
+   - Consultas JDBC / MySQL.
+   - Métricas de la JVM: CPU, memoria heap, threads, garbage collection.
+   - Propagación de contexto distribuido según el estándar W3C TraceContext.
+
+2. **Manual — SDK de OpenTelemetry en controllers:** Complementa la instrumentación automática con señal específica del dominio:
+   - Contadores de solicitudes: `fx_course_requests_total`, `fx_catalog_requests_total`.
+   - Histogramas de duración: `fx_course_request_duration_ms`, `fx_catalog_request_duration_ms`.
+   - Spans con atributos semánticos: `endpoint`, `service.name`, `http.method`.
+   - Logs estructurados que incluyen `traceId` y `spanId` en cada registro.
+
+### OpenTelemetryConfig.java — Compatibilidad con el Agent
+
+La clase `OpenTelemetryConfig` implementa detección del SDK global en tiempo de ejecución:
+- **Con Agent presente:** reutiliza el SDK global ya registrado por el agent, evitando conflictos.
+- **Sin Agent:** instancia el SDK manualmente con los exporters OTLP configurados.
+
+---
+
+## 12. Reglas de Alerta
+
+### Alertas en Prometheus
+
+Las cinco reglas están definidas en `prometheus_alert_rules.yml` y son evaluadas continuamente. Su estado (Inactive / Pending / Firing) es consultable en http://localhost:9090/alerts.
 
 | Alerta | Condición | Severidad | Duración |
 |--------|-----------|-----------|----------|
@@ -788,32 +729,123 @@ Visibles en: http://localhost:9090/alerts
 
 ---
 
-## 13. Queries Documentados
+## 13. Consultas de Referencia
 
-### Prometheus (PromQL) — 16 queries
+> Documentación completa con explicaciones en:
+> - [`docs/queries-prometheus.md`](docs/queries-prometheus.md)
+> - [`docs/queries-elasticsearch.md`](docs/queries-elasticsearch.md)
 
-Archivo: [docs/queries-prometheus.md](docs/queries-prometheus.md)
+---
 
-Incluye queries para:
-- Latencia promedio por endpoint
-- Solicitudes por minuto
-- Tasa de errores HTTP
-- Percentiles P95 y P99
-- Uso de CPU y memoria JVM
-- Threads activos
-- Métricas personalizadas
-- Métricas internas del Collector
+### Prometheus (PromQL) — 18 queries
 
-### Elasticsearch — 10 queries
+Ejecutar en: **http://localhost:9090** → pestaña Graph
 
-Archivo: [docs/queries-elasticsearch.md](docs/queries-elasticsearch.md)
+| # | Query resumido | Qué muestra | Dónde verlo |
+|---|----------------|-------------|-------------|
+| 1 | `rate(sum/count)*1000` | Latencia promedio por endpoint (ms) | Prometheus Graph / Grafana panel 2 |
+| 2 | `rate(count[1m])*60 by (http_route)` | Solicitudes/min por endpoint | Prometheus Graph / Grafana panel 1 |
+| 3 | `rate(count[1m]) by (exported_job)` | Req/s por servicio | Prometheus Graph |
+| 4 | `increase([1h])` | Total requests en la última hora | Prometheus Graph / Grafana panel 4 |
+| 5 | `5xx / total * 100` | Tasa de errores 5xx (%) | Prometheus Graph / Grafana Errores dashboard |
+| 6 | `[45]xx / total * 100` | Tasa de errores 4xx+5xx combinados | Prometheus Graph |
+| 7 | `histogram_quantile(0.95)` | Latencia P95 por servicio | Prometheus Graph / Grafana panel 5 |
+| 8 | `histogram_quantile(0.99) by (http_route)` | Latencia P99 por endpoint | Prometheus Graph / Grafana Avanzado |
+| 9 | `jvm_cpu_recent_utilization * 100` | CPU por servicio (%) | Prometheus Graph / Grafana panel 6 |
+| 10 | `jvm_memory_used{heap} by (exported_job)` | Heap usado por servicio | Prometheus Graph / Grafana panel 7 |
+| 11 | `heap_used / heap_committed * 100` | % de heap ocupado | Prometheus Graph / Grafana Recursos |
+| 12 | `jvm_thread_count` | Threads activos por servicio | Prometheus Graph / Grafana Recursos |
+| 13 | `sum(rate(count[1m]))` | Throughput total del sistema | Prometheus Graph |
+| 14 | `http_client rate(sum/count)` | Latencia llamadas catalog→course | Prometheus Graph / Grafana Avanzado |
+| 15 | `db_client_connections_usage/max` | Pool conexiones MySQL (HikariCP) | Prometheus Graph |
+| 16 | `otel_processedLogs_total` etc. | Métricas internas del OTel Collector | Prometheus Graph / Grafana panel 8 |
+| 17 | `[45]xx by (http_route, exported_job)` | Errores desglosados por endpoint y servicio | Prometheus Graph |
+| 18 | `by catalog` vs `by course` | Comparación de carga entre servicios | Prometheus Graph |
 
-Incluye queries para:
-- Logs ERROR/WARN por servicio
-- Búsqueda por traceId (correlación con Jaeger)
-- Correlación errores-endpoints
-- Agregaciones por servicio y nivel
-- Full-text search con highlighting
+---
+
+### Elasticsearch (JSON DSL + KQL) — 12 queries
+
+Ejecutar en: **http://localhost:5601** → Dev Tools  
+O directamente contra: **http://localhost:9200**
+
+| # | Query | Qué muestra | Dónde verlo |
+|---|-------|-------------|-------------|
+| 1 | `bool should [ERROR, WARNING]` | Logs de error/warning en 24h | Kibana Dev Tools / Discover |
+| 2 | `match service.name + range 2h` | Todos los logs de un servicio | Kibana Discover: `service.name: "fx-catalog-service"` |
+| 3 | `should [WARNING, WARN]` | Logs de advertencia | Kibana Discover: `log.level: WARNING` |
+| 4 | `term traceId: "..."` | Logs de una traza específica (correlación con Jaeger) | Kibana Dev Tools → pegar traceId de Jaeger |
+| 5 | `bool must [ERROR + Body: "catalog"]` | Errores de un endpoint específico | Kibana Dev Tools / Discover: `log.level: ERROR AND Body: "/catalog"` |
+| 6 | `aggs: terms(service) + date_histogram` | Errores por servicio y por hora | Kibana Dev Tools |
+| 7 | `aggs: terms(service) > terms(level)` | Volumen de logs con sub-agrupación por nivel | Kibana Dev Tools / Kibana Dashboard panel |
+| 8 | `aggs: terms(level) + histogram(severityNumber)` | Distribución por nivel de severidad | Kibana Dev Tools / Kibana Dashboard pie chart |
+| 9 | `range: now-15m` | Logs recientes (verificación en tiempo real) | Kibana Discover → ajustar rango temporal |
+| 10 | `match Body + highlight` | Full-text search con resaltado | Kibana Dev Tools / Discover: `Body: "course"` |
+| 11 | `exists traceId + must_not traceId:""` | Solo logs de requests HTTP reales | Kibana Discover: `traceId: *` |
+| 12 | `date_histogram(1m) > terms(service)` | Timeline logs por minuto por servicio | Kibana Dev Tools / Kibana Dashboard bar chart |
+
+---
+
+### Grafana — 5 dashboards
+
+| Dashboard | URL | Paneles | Qué muestra |
+|-----------|-----|---------|-------------|
+| Observabilidad General | http://localhost:3000/d/futurex-observability | 8 | Overview completo: tráfico, latencia, errores, CPU, heap, logs |
+| Requests por Endpoint | http://localhost:3000/d/futurex-requests-endpoint | 5 | Req/min por endpoint, método HTTP, desglose por servicio |
+| CPU y Memoria | http://localhost:3000/d/futurex-resources | 6 | CPU JVM, heap, threads, GC por servicio |
+| Errores vs Éxitos | http://localhost:3000/d/futurex-errors-success | 5 | Tasa de error %, distribución status codes, comparativa |
+| Avanzado / Anomalías | http://localhost:3000/d/futurex-advanced | 6 | P50/P95/P99, correlación latencia/CPU/errores, anomalías |
+
+---
+
+### Alertas en Prometheus — 5 reglas
+
+Ver estado en: **http://localhost:9090/alerts**  
+Disparar manualmente: `powershell -ExecutionPolicy Bypass -File generate-errors.ps1`
+
+| Alerta | Condición | `for` | Severidad |
+|--------|-----------|-------|-----------|
+| `HighErrorRate` | 4xx+5xx > 10% del total | 2 min | warning |
+| `HighLatency` | P95 > 2 segundos | 3 min | critical |
+| `NoTraffic` | Sin requests en 10 min | 10 min | info |
+| `CatalogHighLatency` | Latencia catalog > 1s promedio | 2 min | warning |
+| `CourseHighLatency` | Latencia course > 1s promedio | 2 min | warning |
+
+---
+
+### Kibana — configuración avanzada provisionada
+
+| Componente | Tipo | Dónde verlo |
+|------------|------|-------------|
+| Dashboard con 6 paneles | Dashboard | http://localhost:5601/app/dashboards#/view/futurex-kibana-logs |
+| Volumen de logs en tiempo | Bar chart (por minuto) | Panel 1 del dashboard Kibana |
+| Distribución por nivel | Pie chart | Panel 2 del dashboard Kibana |
+| Logs por servicio | Bar horizontal | Panel 3 del dashboard Kibana |
+| Conteo total de logs | Metric | Panel 4 del dashboard Kibana |
+| Tabla últimos logs | Data table | Panel 5/6 del dashboard Kibana |
+| Saved search con traceId | Discover | Menú → Discover → Open → `FutureX - Logs con TraceId` |
+| Index pattern `otel-logs-*` | Management | http://localhost:5601/app/management/kibana/indexPatterns |
+
+---
+
+### Dónde ver cada cosa
+
+| Quiero ver... | Herramienta | URL directa |
+|---------------|-------------|-------------|
+| Trazas distribuidas completas con spans y waterfall | **Jaeger** | http://localhost:16686 |
+| Latencia P95, CPU, heap en tiempo real | **Grafana** | http://localhost:3000/d/futurex-observability |
+| Tasa de errores por endpoint | **Grafana** | http://localhost:3000/d/futurex-errors-success |
+| Comparar carga entre servicios | **Grafana** | http://localhost:3000/d/futurex-requests-endpoint |
+| GC, threads, pool de conexiones | **Grafana** | http://localhost:3000/d/futurex-resources |
+| Anomalías y correlación avanzada | **Grafana** | http://localhost:3000/d/futurex-advanced |
+| Estado de las alertas | **Prometheus** | http://localhost:9090/alerts |
+| Métricas raw del Collector | **Prometheus** | http://localhost:8889/metrics |
+| Logs de error de un servicio | **Kibana** | http://localhost:5601/app/discover → `log.level: ERROR` |
+| Logs asociados a una traza | **Kibana** | Dev Tools → query 4 con traceId de Jaeger |
+| Distribución de logs por nivel | **Kibana** | http://localhost:5601/app/dashboards#/view/futurex-kibana-logs |
+| Todos los logs en tiempo real | **Kibana** | Discover → rango "Last 15 minutes" |
+| Estado del cluster Elasticsearch | **Elasticsearch** | http://localhost:9200/_cat/indices?v |
+| Correlación log ↔ traza | **Jaeger + Kibana** | Jaeger: copiar traceId → Kibana Discover: `traceId: "VALOR"` |
 
 ---
 
@@ -872,58 +904,57 @@ OpenTelemetry/
 
 ---
 
-## 15. Solución de Problemas
+## 15. Solución de Problemas Comunes
 
-### El OTel Collector no arranca
+### El OTel Collector no inicia
 ```bash
 docker logs otel-collector --tail 20
 ```
-- Si dice `permission denied`: El Collector necesita `user: "0:0"` en docker-compose (ya configurado).
-- Si dice `failed to build pipelines`: Revisar `otel-collector-config.yaml`.
+- Error `permission denied`: el Collector requiere `user: "0:0"` en el `docker-compose.yml` (ya incluido en la configuración del repositorio).
+- Error `failed to build pipelines`: revisar la sintaxis de `otel-collector-config.yaml`.
 
-### No aparecen métricas en Prometheus
-1. Verificar target: http://localhost:9090/targets → debe decir **UP**
-2. Verificar que el endpoint responde: `curl http://localhost:8889/metrics`
-3. Las métricas tardan ~30 segundos después del primer request
+### Métricas ausentes en Prometheus
+1. Verificar el estado del target en http://localhost:9090/targets — debe aparecer **UP**.
+2. Confirmar que el endpoint de scraping responde: `curl http://localhost:8889/metrics`.
+3. Las métricas pueden tardar hasta 30 segundos en aparecer tras la primera solicitud al microservicio.
 
-### No aparecen trazas en Jaeger
-1. Verificar que el microservicio usa puerto **4320** (no 4319)
-2. Buscar errores `Failed to export spans` en la consola del microservicio
-3. Si usa PowerShell, envolver flags `-D` en comillas
+### Trazas ausentes en Jaeger
+1. Verificar que el microservicio apunta al puerto correcto del Collector (4319 para gRPC, 4320 para HTTP).
+2. Revisar la salida del microservicio por mensajes `Failed to export spans`.
+3. En PowerShell, los flags `-D` deben estar entre comillas dobles.
 
-### No aparecen logs en Kibana/Elasticsearch
-1. Verificar que Logstash está corriendo: `docker logs logstash --tail 20`
-2. Verificar que el archivo de logs existe: `docker exec otel-collector ls -la /var/log/`
-3. Verificar índice: `curl http://localhost:9200/_cat/indices?v`
-4. Si el índice no existe, los microservicios aún no han enviado logs
+### Logs ausentes en Kibana/Elasticsearch
+1. Verificar el estado de Logstash: `docker logs logstash --tail 20`.
+2. Confirmar que el archivo de logs existe: `docker exec otel-collector ls -la /var/log/`.
+3. Verificar la existencia del índice: `curl http://localhost:9200/_cat/indices?v`.
+4. Si el índice no existe, los microservicios no han emitido logs aún.
 
-### Error "GlobalOpenTelemetry has already been set"
-El `OpenTelemetryConfig.java` ya maneja esto automáticamente. Si persiste, verificar que no hay otra clase registrando un SDK global.
+### Error `GlobalOpenTelemetry has already been set`
+`OpenTelemetryConfig.java` gestiona este caso automáticamente. Si el error persiste, verificar que no exista otra clase registrando un SDK global en el contexto de Spring.
 
-### Warning "ResourceAttributes.SERVICE_NAME is deprecated"
-Es un warning cosmético del SDK. No afecta funcionalidad.
-
----
-
-## Notas Finales
-
-- Los **5 dashboards de Grafana** se cargan automáticamente al iniciar el contenedor
-- Las **alertas de Prometheus** se activan automáticamente
-- El **Index Pattern y Dashboard de Kibana** están preconfigurados via Saved Objects API
-- La **correlación logs-trazas** se logra usando el campo `traceId` que aparece en ambos sistemas
-- Generar suficiente tráfico para que los gráficos muestren datos significativos
+### Warning `ResourceAttributes.SERVICE_NAME is deprecated`
+Advertencia cosmética del SDK de OpenTelemetry. No afecta a la funcionalidad ni a la exportación de telemetría.
 
 ---
 
-## 16. Guía de Validación Completa
+## Notas de Operación
 
-Esta sección describe el proceso completo para levantar el sistema desde cero y confirmar que cada componente está funcionando correctamente.
+- Los **5 dashboards de Grafana** y las **5 reglas de alerta** se provisionan automáticamente al iniciar el contenedor.
+- El **index pattern y dashboard de Kibana** se crean mediante la Saved Objects API en el primer arranque.
+- La **correlación entre logs y trazas** se realiza a través del campo `traceId`, presente en ambos sistemas con el mismo valor.
+- Para que los paneles de Grafana muestren datos representativos, se recomienda generar un volumen mínimo de tráfico mediante `generate-traffic-heavy.ps1`.
 
 ---
 
-### Fase 1 — Infraestructura Docker
+## 16. Guía de Validación
 
-**Objetivo:** Confirmar que los 8 contenedores están corriendo y sanos.
+Esta sección describe el procedimiento de verificación integral para confirmar el correcto funcionamiento de cada componente del stack desde un estado inicial limpio.
+
+---
+
+### Fase 1 — Infraestructura
+
+Verificar que todos los contenedores se encuentran en ejecución y en estado saludable.
 
 #### Paso 1.1 — Levantar los contenedores
 
@@ -956,7 +987,7 @@ docker compose ps
 docker logs otel-collector --tail 5
 ```
 
-**Resultado esperado:** Última línea debe decir:
+**Salida esperada:**
 ```
 Everything is ready. Begin running and processing data.
 ```
@@ -965,9 +996,7 @@ Everything is ready. Begin running and processing data.
 
 ### Fase 2 — Microservicios
 
-**Objetivo:** Compilar y ejecutar ambos microservicios con el Java Agent.
-
-#### Paso 2.1 — Compilar (si no se hizo antes)
+#### Paso 2.1 — Compilar los microservicios
 
 ```bash
 # Windows PowerShell
@@ -980,7 +1009,7 @@ cd part0-JaegerCourseCatalog; .\mvnw.cmd clean package -DskipTests; cd ..
 
 #### Paso 2.2 — Iniciar fx-course-service
 
-Abrir una **terminal nueva** y ejecutar:
+Ejecutar en una terminal independiente:
 
 ```bash
 # Linux / macOS
@@ -1004,7 +1033,7 @@ java "-javaagent:opentelemetry-javaagent.jar" `
      -jar "parte0-JaegerCourseApp\target\FutureXCourseApp-0.0.1-SNAPSHOT.jar"
 ```
 
-**Resultado esperado en consola:**
+**Salida esperada:**
 ```
 [otel.javaagent] opentelemetry-javaagent - version: 2.27.0
 Started FutureXCourseAppApplication in XX seconds
@@ -1013,7 +1042,7 @@ Sample courses loaded successfully.
 
 #### Paso 2.3 — Iniciar fx-catalog-service
 
-Abrir una **segunda terminal nueva** y ejecutar:
+Ejecutar en una segunda terminal independiente:
 
 ```bash
 # Linux / macOS
@@ -1037,7 +1066,7 @@ java "-javaagent:opentelemetry-javaagent.jar" `
      -jar "part0-JaegerCourseCatalog\target\FutureXCourseCatalog-0.0.1-SNAPSHOT.jar"
 ```
 
-**Resultado esperado en consola:**
+**Salida esperada:**
 ```
 [otel.javaagent] opentelemetry-javaagent - version: 2.27.0
 the agent provides the global OpenTelemetry object used by your application.
@@ -1051,13 +1080,13 @@ curl http://localhost:8001/actuator/health
 curl http://localhost:8002/actuator/health
 ```
 
-**Resultado esperado:** `{"status":"UP",...}`
+**Respuesta esperada:** `{"status":"UP",...}`
 
 ---
 
 ### Fase 3 — Generación de Tráfico
 
-**Objetivo:** Enviar solicitudes reales para que fluya telemetría por todo el sistema.
+Es necesario generar solicitudes reales hacia los microservicios para que el pipeline de telemetría produzca datos observables en los distintos backends.
 
 #### Opción A — Script automático
 
@@ -1089,156 +1118,116 @@ curl -X POST http://localhost:8001/courses \
 curl -X DELETE http://localhost:8001/courses/10
 ```
 
-> Esperar **20-30 segundos** antes de verificar los datos en los sistemas de observabilidad.
+> Tras la generación de tráfico, es recomendable aguardar entre 20 y 30 segundos para que los datos sean procesados y visibles en los sistemas de observabilidad.
 
 ---
 
-### Fase 4 — Verificar Jaeger
+### Fase 4 — Verificación en Jaeger
 
 **URL:** http://localhost:16686
 
-1. Abrir http://localhost:16686
-2. En **"Service"** seleccionar `fx-catalog-service` → **"Find Traces"**
-3. ✅ Deben aparecer trazas con 2 servicios en el span (catalog → course)
-4. Click en una traza → ver el **diagrama de cascada**
-5. En **"Service"** seleccionar `fx-course-service` → **"Find Traces"**
-6. ✅ Deben aparecer trazas individuales de los endpoints `/courses`, `/courses/{id}`
-7. Copiar un **Trace ID** para usarlo en el paso de Kibana
+En el campo **Service** se selecciona `fx-catalog-service` y se ejecuta **Find Traces**. Las trazas resultantes deben presentar spans pertenecientes a ambos servicios, evidenciando la propagación del contexto distribuido. Seleccionando `fx-course-service` se visualizan las trazas individuales de los endpoints `/courses` y `/courses/{id}`. El Trace ID de cualquier traza puede copiarse para su uso posterior en Kibana.
 
-**Señales de éxito:**
-- Al menos 2 servicios listados en el dropdown
-- Trazas con múltiples spans (catalog tiene un span saliente hacia course)
-- Atributos visibles: `http.method`, `http.route`, `http.response_status_code`
+**Indicadores de correcto funcionamiento:**
+- Al menos dos servicios disponibles en el selector de servicio.
+- Trazas de `fx-catalog-service` con spans salientes hacia `fx-course-service`.
+- Atributos semánticos visibles en cada span: `http.method`, `http.route`, `http.response_status_code`.
 
 ---
 
-### Fase 5 — Verificar Prometheus
+### Fase 5 — Verificación en Prometheus
 
 **URL:** http://localhost:9090
 
-#### 5.1 — Verificar targets
+#### 5.1 — Estado del target
 
-1. Abrir http://localhost:9090/targets
-2. ✅ El target `otel-collector` debe estar **UP** (color verde)
+En http://localhost:9090/targets el target `otel-collector` debe aparecer en estado **UP**.
 
-#### 5.2 — Verificar métricas HTTP
+#### 5.2 — Métricas HTTP
 
-1. Ir a http://localhost:9090 → pestaña **"Graph"**
-2. Pegar y ejecutar:
 ```promql
 otel_http_server_request_duration_seconds_count
 ```
-3. ✅ Debe mostrar series con labels `http_route`, `service_name`, `http_response_status_code`
 
-#### 5.3 — Verificar métricas JVM
+La consulta debe retornar series con los labels `http_route`, `exported_job` y `http_response_status_code` con valores mayores a cero.
+
+#### 5.3 — Métricas JVM
 
 ```promql
 otel_jvm_cpu_recent_utilization_ratio
 ```
-4. ✅ Debe mostrar valores para `fx-course-service` y `fx-catalog-service`
 
-#### 5.4 — Verificar alertas
+Deben existir series para `fx-course-service` y `fx-catalog-service`.
 
-1. Abrir http://localhost:9090/alerts
-2. ✅ Las 5 alertas deben estar en estado **"Inactive"** (verde) o **"Pending"**
+#### 5.4 — Reglas de alerta
 
-**Señales de éxito:**
-- Target en estado UP
-- Métricas HTTP con valores > 0
-- JVM metrics con 2 servicios
+En http://localhost:9090/alerts las cinco reglas deben encontrarse en estado **Inactive** o **Pending** bajo condiciones de tráfico normal.
 
 ---
 
-### Fase 6 — Verificar Grafana
+### Fase 6 — Verificación en Grafana
 
-**URL:** http://localhost:3000 · Login: **admin / admin**
+**URL:** http://localhost:3000 · **Credenciales:** admin / admin
 
-#### 6.1 — Abrir el dashboard general
+Los cinco dashboards son accesibles desde **Dashboards → carpeta FutureX**. Cada panel debe presentar datos en el rango temporal activo. Si los paneles muestran "No data", se recomienda ajustar el selector de tiempo a **Last 15 minutes** o **Last 1 hour** y forzar la actualización.
 
-1. Login en http://localhost:3000
-2. Ir a **Dashboards** → carpeta **FutureX**
-3. Abrir **"FutureX - Observabilidad General"**
-4. ✅ Los paneles deben mostrar datos (no "No data")
-
-#### 6.2 — Verificar cada dashboard
-
-| Dashboard | URL | Qué verificar |
-|-----------|-----|---------------|
-| Observabilidad General | http://localhost:3000/d/futurex-observability | Panel "Solicitudes/min" con líneas de datos |
-| Ejemplo 1: Requests | http://localhost:3000/d/futurex-requests-endpoint | Barras de requests por endpoint |
-| Ejemplo 2: CPU/Mem | http://localhost:3000/d/futurex-resources | Gráficos de CPU y memoria no vacíos |
-| Ejemplo 3: Errores | http://localhost:3000/d/futurex-errors-success | Donut con distribución de status codes |
-
-#### 6.3 — Cambiar rango de tiempo
-
-Si los paneles aparecen vacíos:
-1. Esquina superior derecha → selector de tiempo
-2. Cambiar a **"Last 15 minutes"** o **"Last 1 hour"**
-3. Click en **"Refresh"** (icono ↻)
-
-**Señales de éxito:**
-- Paneles timeseries con líneas visibles
-- Gauge de latencia P95 con valor
-- Panel de logs recientes mostrando entradas
+| Dashboard | URL | Criterio de validación |
+|-----------|-----|------------------------|
+| Observabilidad General | http://localhost:3000/d/futurex-observability | Series temporales con datos en el panel de solicitudes/min |
+| Requests por Endpoint | http://localhost:3000/d/futurex-requests-endpoint | Barras de requests desglosadas por endpoint |
+| CPU y Memoria | http://localhost:3000/d/futurex-resources | Gráficos de CPU y heap no vacíos |
+| Errores vs Éxitos | http://localhost:3000/d/futurex-errors-success | Gráfico de dona con distribución de códigos HTTP |
 
 ---
 
-### Fase 7 — Verificar Kibana
+### Fase 7 — Verificación en Kibana
 
 **URL:** http://localhost:5601
 
-> El index pattern y el dashboard están preconfigurados. No se requiere ninguna configuración manual.
+El index pattern y el dashboard están provisionados automáticamente y no requieren configuración manual.
 
 #### 7.1 — Dashboard de logs
 
-1. Abrir **http://localhost:5601/app/dashboards#/view/futurex-kibana-logs**
-2. ✅ Deben aparecer 6 paneles con datos:
-   - Line chart: volumen de logs por servicio en el tiempo
-   - Area chart: logs de error/warning en el tiempo
-   - Pie chart: proporción por servicio
-   - Bar chart: distribución por nivel de severidad
-   - Metric: conteo de logs con traceId real
-   - Tabla: logs recientes con traceId, servicio y mensaje
+Acceder a http://localhost:5601/app/dashboards#/view/futurex-kibana-logs. El dashboard debe presentar 6 paneles con datos:
+
+- *Line chart:* volumen de logs por servicio en el tiempo.
+- *Area chart:* registros de nivel WARNING y ERROR en el tiempo.
+- *Pie chart:* proporción de logs por servicio.
+- *Bar chart:* distribución por nivel de severidad OTLP.
+- *Metric:* conteo total de registros con `traceId` real.
+- *Tabla:* registros recientes con columnas `traceId`, `service.name` y `Body`.
 
 #### 7.2 — Saved Searches en Discover
 
-1. Menú lateral → **Discover**
-2. Click en el icono de carpeta → **Open**
-3. Seleccionar `FutureX - Logs con TraceId para Correlacion`
-4. ✅ Columnas visibles: `@timestamp`, `service.name`, `log.level`, `traceId`, `Body`
+Desde **Discover → Open**, seleccionar `FutureX - Logs con TraceId para Correlacion`. Las columnas `@timestamp`, `service.name`, `log.level`, `traceId` y `Body` deben estar visibles.
 
-#### 7.3 — Buscar logs de error con KQL
+#### 7.3 — Filtrado por nivel de severidad
 
-En la barra de búsqueda:
 ```
 log.level.keyword: (WARNING OR ERROR)
 ```
 
-#### 7.4 — Correlacionar con Jaeger
+#### 7.4 — Correlación con Jaeger
 
-1. En Jaeger copiar un **Trace ID** de cualquier traza de `fx-course-service`
-2. En Kibana Discover (index `otel-logs-*`):
+Copiar el Trace ID de cualquier traza en Jaeger y ejecutar la siguiente consulta en Kibana Discover (index `otel-logs-*`):
+
 ```
 traceId: "PEGAR_TRACE_ID_AQUI"
 ```
-3. ✅ Deben aparecer **2 documentos**: uno de `fx-catalog-service` y otro de `fx-course-service` — misma traza distribuida desde ambos servicios
 
-**Señales de éxito:**
-- Dashboard abre con 6 paneles y datos reales
-- Saved searches retornan logs filtrados correctamente
-- Búsqueda por traceId retorna logs de ambos servicios con el mismo ID
+Deben retornarse exactamente dos documentos: uno de `fx-catalog-service` y otro de `fx-course-service`, correspondientes a la misma traza distribuida.
 
 ---
 
-### Fase 8 — Verificación Automática (script)
+### Fase 8 — Verificación Automática
 
-Ejecutar el script incluido que verifica todos los sistemas a la vez:
+El script `verify.ps1` realiza la verificación integral de todos los sistemas de forma secuencial:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File verify.ps1
 ```
 
-**Resultado esperado:**
+**Salida esperada:**
 ```
 === 1. JAEGER - Traces ===
 Services found: 3
@@ -1266,26 +1255,26 @@ Dashboards found: 5
 
 ---
 
-### Resumen de verificación
+### Tabla de verificación consolidada
 
-| # | Sistema | URL | Señal de éxito |
-|---|---------|-----|----------------|
-| 1 | Infraestructura | `docker compose ps` | Todos los contenedores `Up` |
-| 2 | OTel Collector | `docker logs otel-collector` | `Everything is ready` |
-| 3 | Microservicios | http://localhost:8001/actuator/health | `{"status":"UP"}` |
-| 4 | **Jaeger** | http://localhost:16686 | 2 servicios + trazas distribuidas |
-| 5 | **Prometheus** | http://localhost:9090/targets | Target `otel-collector` en **UP** |
-| 6 | **Grafana** | http://localhost:3000 | 5 dashboards con datos |
-| 7 | **Kibana** | http://localhost:5601 | Logs indexados en `otel-logs-*` |
-| 8 | Script | `final-check.ps1` | Todos los checks en verde |
+| # | Sistema | URL | Criterio de validación |
+|---|---------|-----|------------------------|
+| 1 | Infraestructura | `docker compose ps` | Todos los contenedores en estado `Up` |
+| 2 | OTel Collector | `docker logs otel-collector` | `Everything is ready. Begin running and processing data.` |
+| 3 | Microservicios | http://localhost:8001/actuator/health | Respuesta `{"status":"UP"}` |
+| 4 | **Jaeger** | http://localhost:16686 | Dos servicios instrumentados con trazas distribuidas |
+| 5 | **Prometheus** | http://localhost:9090/targets | Target `otel-collector` en estado **UP** |
+| 6 | **Grafana** | http://localhost:3000 | Cinco dashboards con datos en todos sus paneles |
+| 7 | **Kibana** | http://localhost:5601 | Registros indexados en `otel-logs-*` con `traceId` presente |
+| 8 | Script | `verify.ps1` | Todos los verificadores con resultado positivo |
 
 ---
 
-## 17. Resumen Final de Implementación
+## 17. Resumen de Implementación
 
-> **Estado validado:** 25 Mayo 2026 — Verificación final completa. Todo el stack funciona correctamente.
+> **Estado validado:** 25 Mayo 2026 — Verificación integral completada con datos reales.
 
-### ¿Qué se implementó?
+### Componentes implementados
 
 | Componente | Descripción |
 |-----------|-------------|
@@ -1298,49 +1287,49 @@ Dashboards found: 5
 
 ---
 
-### Dashboards en Grafana
+### Descripción de los dashboards de Grafana
 
-#### Dashboard 1 — Ejemplo 1: Solicitudes por Endpoint
+#### Dashboard 1 — Solicitudes por Endpoint
 **URL:** http://localhost:3000/d/futurex-requests-endpoint
 
-| Panel | Tipo | Qué muestra | Cómo leerlo |
-|-------|------|-------------|-------------|
-| Solicitudes/min por Endpoint | Timeseries | Req/min para cada ruta HTTP (`/courses`, `/catalog`, `/firstcourse`, etc.) | Picos = tráfico intenso. Sin líneas = sin tráfico. |
-| Solicitudes/min fx-catalog-service | Timeseries | Req/min solo de catalog por endpoint | Permite comparar `/catalog` vs `/firstcourse` |
-| Solicitudes/min fx-course-service | Timeseries | Req/min solo de course por endpoint | Permite comparar `/courses` vs `/{id}` vs 404s |
-| Solicitudes Totales por Servicio (1h) | Stat | Total acumulado de requests en 1 hora por servicio | Número absoluto, útil para dimensionar carga |
-| Solicitudes por Método HTTP | Piechart | Distribución GET vs POST vs DELETE | Confirma que el tráfico es principalmente GET |
+| Panel | Tipo | Contenido | Interpretación |
+|-------|------|-----------|----------------|
+| Solicitudes/min por Endpoint | Timeseries | Req/min para cada ruta HTTP (`/courses`, `/catalog`, `/firstcourse`, etc.) | Picos sostenidos indican tráfico intenso; ausencia de líneas, inactividad. |
+| Solicitudes/min fx-catalog-service | Timeseries | Req/min de `fx-catalog-service` desglosado por endpoint | Permite comparar la carga entre `/catalog` y `/firstcourse`. |
+| Solicitudes/min fx-course-service | Timeseries | Req/min de `fx-course-service` desglosado por endpoint | Permite comparar `/courses`, `/{id}` y solicitudes con error 404. |
+| Solicitudes Totales por Servicio (1h) | Stat | Total acumulado de solicitudes en la última hora por servicio | Indicador absoluto de carga útil para dimensionamiento. |
+| Solicitudes por Método HTTP | Piechart | Distribución GET / POST / DELETE | Refleja el perfil de uso del API. |
 
 **Métrica usada:** `otel_http_server_request_duration_seconds_count` con label `http_route`, `exported_job`, `http_request_method`
 
 ---
 
-#### Dashboard 2 — Ejemplo 2: CPU y Memoria
+#### Dashboard 2 — CPU y Memoria
 **URL:** http://localhost:3000/d/futurex-resources
 
-| Panel | Tipo | Qué muestra | Cómo leerlo |
-|-------|------|-------------|-------------|
-| Uso de CPU por Servicio | Timeseries | % de CPU JVM (0–100%) por servicio en el tiempo | >80% sostenido indica sobrecarga. Picos breves son normales. |
-| Uso de Memoria JVM (Heap) | Timeseries | MB de heap usados por cada servicio | Crecimiento continuo sin bajadas = posible memory leak. Bajadas = GC actuó. |
-| Threads JVM por Servicio | Timeseries | Número de threads activos en cada JVM | Crecimiento sostenido sin techo = thread leak. Normal: 20–60 threads. |
-| CPU Actual (Gauge) | Gauge | % CPU instantáneo, semáforo verde/amarillo/rojo | Verde <50%, Amarillo <80%, Rojo >80% |
-| Memoria Heap Actual (Gauge) | Gauge | % heap used/committed instantáneo | Verde <70%, Amarillo <85%, Rojo >85% |
-| Garbage Collection — Duración | Timeseries | Tiempo acumulado de GC en ms | Picos de GC = presión de memoria. Correlacionar con latencia alta. |
+| Panel | Tipo | Contenido | Interpretación |
+|-------|------|-----------|----------------|
+| Uso de CPU por Servicio | Timeseries | CPU JVM (0–100%) por servicio en el tiempo | Uso sostenido >80% indica sobrecarga; picos breves son esperables. |
+| Uso de Memoria JVM (Heap) | Timeseries | Heap utilizado en MB por servicio | Crecimiento continuo sin descensos puede indicar memory leak; los descensos corresponden a ciclos de GC. |
+| Threads JVM por Servicio | Timeseries | Número de threads activos por JVM | Crecimiento indefinido puede indicar un thread leak. Rango normal: 20–60 threads. |
+| CPU Actual (Gauge) | Gauge | Uso instantáneo de CPU con semáforo | Verde <50%, Amarillo <80%, Rojo >80%. |
+| Memoria Heap Actual (Gauge) | Gauge | Proporción heap used/committed instantánea | Verde <70%, Amarillo <85%, Rojo >85%. |
+| Garbage Collection — Duración | Timeseries | Tiempo acumulado de GC en milisegundos | Picos de GC deben correlacionarse con incrementos de latencia. |
 
 **Métricas usadas:** `otel_jvm_cpu_recent_utilization_ratio`, `otel_jvm_memory_used_bytes`, `otel_jvm_thread_count`, `otel_jvm_gc_duration_seconds`
 
 ---
 
-#### Dashboard 3 — Ejemplo 3: Errores vs Éxitos
+#### Dashboard 3 — Errores vs Éxitos
 **URL:** http://localhost:3000/d/futurex-errors-success
 
-| Panel | Tipo | Qué muestra | Cómo leerlo |
-|-------|------|-------------|-------------|
-| Errores vs Éxitos — Distribución (6h) | Piechart | Proporción 2xx / 3xx / 4xx / 5xx en las últimas 6h | Verde = éxitos, Naranja = errores cliente, Rojo = errores servidor |
-| Tasa de Error (%) en el tiempo | Timeseries | % de requests con error (4xx+5xx) sobre total | >5% sostenido es preocupante. Los 404s de `/courses/999` son visibles aquí. |
-| Errores vs Éxitos por Servicio | Timeseries | Comparación de requests ok vs errores por servicio | Ver si los errores se concentran en un servicio específico |
-| Correlación: Errores vs Latencia | Timeseries (eje dual) | Tasa de error % (izq.) + P95 latencia en ms (der.) | Si ambas suben juntas → hay sobrecarga. Si error sube pero latencia no → errores lógicos (404s, validaciones). |
-| Status Codes por Endpoint (6h) | Tabla | Conteo de requests por endpoint y código HTTP | Identifica qué endpoint genera más errores y qué código devuelven. |
+| Panel | Tipo | Contenido | Interpretación |
+|-------|------|-----------|----------------|
+| Distribución de códigos HTTP (6h) | Piechart | Proporción 2xx / 3xx / 4xx / 5xx en las últimas 6 horas | Verde: respuestas exitosas; naranja: errores de cliente; rojo: errores de servidor. |
+| Tasa de Error (%) en el tiempo | Timeseries | Porcentaje de solicitudes con código 4xx+5xx sobre el total | Una tasa sostenida >5% merece investigación. Los 404 de `/courses/999` son visibles aquí. |
+| Errores vs Éxitos por Servicio | Timeseries | Solicitudes correctas vs erróneas desglosadas por servicio | Permite identificar si los errores se concentran en un servicio específico. |
+| Correlación: Errores vs Latencia | Timeseries (eje dual) | Tasa de error % (eje izquierdo) y latencia P95 en ms (eje derecho) | Incremento conjunto indica sobrecarga; incremento aislado de errores sugiere fallos lógicos (validaciones, 404). |
+| Códigos HTTP por Endpoint (6h) | Tabla | Recuento de solicitudes por endpoint y código de respuesta | Permite identificar los endpoints con mayor tasa de error. |
 
 **Métricas usadas:** `otel_http_server_request_duration_seconds_count` con `http_response_status_code`
 
@@ -1349,36 +1338,36 @@ Dashboards found: 5
 #### Dashboard 4 — Observabilidad General
 **URL:** http://localhost:3000/d/futurex-observability
 
-| Panel | Tipo | Qué muestra | Cómo leerlo |
-|-------|------|-------------|-------------|
-| Solicitudes/min por Endpoint | Timeseries | Vista global de tráfico por ruta | Panel de entrada, vista rápida de actividad |
-| Latencia Promedio por Endpoint (ms) | Timeseries | ms promedio por ruta en ventana 5min | >500ms indica problema. Normal: <100ms |
-| Errores vs Éxitos | Piechart | Distribución de status codes global | Debe ser >95% verde en operación normal |
-| Total Solicitudes por Servicio (1h) | Stat | Req acumulados por servicio | Comparativa rápida de carga entre servicios |
-| Latencia P95 | Gauge | Percentil 95 de latencia global | Semáforo: verde <500ms, amarillo <2000ms, rojo >2000ms |
-| CPU por Servicio (%) | Timeseries | CPU JVM ambos servicios | Detección rápida de sobrecarga |
-| Memoria Heap por Servicio | Timeseries | Heap en MB ambos servicios | Detección rápida de memory pressure |
+| Panel | Tipo | Contenido | Interpretación |
+|-------|------|-----------|----------------|
+| Solicitudes/min por Endpoint | Timeseries | Vista global de tráfico por ruta HTTP | Visión general de actividad en el sistema. |
+| Latencia Promedio por Endpoint (ms) | Timeseries | Latencia media por ruta en ventana de 5 min | Valores sostenidos >500 ms indican degradación; rango normal: <100 ms. |
+| Distribución de códigos HTTP | Piechart | Proporción global de códigos de respuesta | En operación normal, el segmento 2xx debe superar el 95%. |
+| Total Solicitudes por Servicio (1h) | Stat | Solicitudes acumuladas por servicio en la última hora | Permite comparar la carga relativa entre servicios. |
+| Latencia P95 | Gauge | Percentil 95 de latencia global | Verde <500 ms, amarillo <2 000 ms, rojo >2 000 ms. |
+| CPU por Servicio (%) | Timeseries | Uso de CPU JVM de ambos servicios | Detección inmediata de condiciones de sobrecarga. |
+| Memoria Heap por Servicio | Timeseries | Heap utilizado en MB por servicio | Detección inmediata de presión de memoria. |
 
 **Métricas usadas:** combinación de HTTP server, JVM CPU y Heap
 
 ---
 
-#### Dashboard 5 — Avanzado: Anomalías y Correlación
+#### Dashboard 5 — Análisis Avanzado y Correlación
 **URL:** http://localhost:3000/d/futurex-advanced
 
-| Panel | Tipo | Qué muestra | Cómo leerlo |
-|-------|------|-------------|-------------|
-| Detección de Anomalías — Tasa de Error | Timeseries | Error rate % con líneas de umbral 5% (naranja) y 10% (rojo) | Cuando la línea sube sobre los umbrales → comportamiento anormal. Los 404s de `/courses/999` son visibles. |
-| Correlación: Latencia P95 vs Error | Timeseries (eje dual) | P95 ms (izq.) + error rate % (der.) en el tiempo | Si ambas suben juntas → sobrecarga del sistema. Si solo error sube → errores lógicos. |
-| Correlación: CPU JVM vs Latencia | Timeseries (eje dual) | CPU % (izq.) por servicio + latencia promedio ms (der.) | CPU alto + latencia alta → cuello de botella en CPU de la JVM |
-| Throughput por Endpoint (req/min) | Bargauge horizontal | Req/min actual por endpoint, ordenado desc | Identifica qué endpoints reciben más carga. Gradiente de color por intensidad. |
-| Latencia P50 vs P95 vs P99 | Timeseries | Tres percentiles en el mismo panel | Si P99 >> P50 → hay tail latency (requests lentos esporádicos). Diferencia grande = variabilidad alta. |
-| Correlación: Heap JVM vs Throughput | Timeseries (eje dual) | Heap MB (izq.) + req/min (der.) | Heap que crece proporcionalmente al throughput indica buen comportamiento. Heap que crece sin throughput = leak. |
-| Tabla: Métricas por Endpoint | Tabla | Req/min por endpoint + servicio + status code, instantáneo | Vista tabular para identificar endpoints problemáticos de un vistazo |
-| Tasa de Requests: Catálogo vs Cursos | Timeseries | Req/min de cada servicio en el tiempo | Comparación directa: divergencia sostenida indica degradación en uno de ellos |
-| Gauge: Estado Actual del Sistema | Stat (semáforo) | 4 métricas simultáneas: Error Rate %, P95 ms, CPU Max %, Heap % | Verde = normal, Amarillo = advertencia, Rojo = crítico. Vista instantánea de salud del sistema. |
-| Conexiones DB: Activas vs Idle | Timeseries | Pool HikariCP: used / idle / max (fx-course-service) | `used` alto y `idle` bajo → contención de BD. Si `used` = `max` → pool saturado. |
-| Threads JVM por Servicio | Timeseries | Threads activos en ambas JVMs | Crecimiento sostenido sin techo = thread leak. |
+| Panel | Tipo | Contenido | Interpretación |
+|-------|------|-----------|----------------|
+| Detección de Anomalías — Tasa de Error | Timeseries | Tasa de error con umbrales visuales al 5% (naranja) y 10% (rojo) | Superación de umbrales indica comportamiento anómalo. Los errores 404 generados en `/courses/999` son identificables. |
+| Correlación: Latencia P95 vs Tasa de Error | Timeseries (eje dual) | P95 en ms (eje izquierdo) y tasa de error % (eje derecho) | Incremento conjunto indica sobrecarga del sistema; incremento aislado de la tasa de error sugiere fallos lógicos. |
+| Correlación: CPU JVM vs Latencia | Timeseries (eje dual) | CPU % por servicio (izquierdo) y latencia media en ms (derecho) | CPU elevado con latencia alta es indicativo de cuello de botella en la JVM. |
+| Throughput por Endpoint (req/min) | Bargauge horizontal | Req/min por endpoint ordenados de mayor a menor | Permite identificar los endpoints con mayor carga de trabajo. |
+| Latencia P50 / P95 / P99 | Timeseries | Tres percentiles representados en el mismo panel | Una diferencia pronunciada entre P99 y P50 indica alta variabilidad y presencia de tail latency. |
+| Correlación: Heap JVM vs Throughput | Timeseries (eje dual) | Heap en MB (izquierdo) y req/min (derecho) | Crecimiento de heap proporcional al throughput es comportamiento normal; crecimiento desligado del throughput puede indicar memory leak. |
+| Tabla: Métricas por Endpoint | Tabla | Req/min, servicio y código HTTP instantáneos por endpoint | Vista tabular para identificación rápida de endpoints problemáticos. |
+| Comparación: Catálogo vs Cursos | Timeseries | Req/min de cada servicio en el tiempo | Una divergencia sostenida entre ambas líneas puede indicar degradación en uno de los servicios. |
+| Estado Actual del Sistema | Stat con semáforo | Cuatro métricas simultáneas: Error Rate %, P95 ms, CPU máx %, Heap % | Vista instantánea del estado de salud; verde: normal, amarillo: advertencia, rojo: crítico. |
+| Conexiones DB: Activas vs Idle | Timeseries | Pool HikariCP de `fx-course-service`: used / idle / max | Valores `used` próximos a `max` indican saturación del pool de conexiones a base de datos. |
+| Threads JVM por Servicio | Timeseries | Threads activos en ambas JVMs | Crecimiento indefinido sin estabilización es indicativo de thread leak. |
 
 **Métricas usadas:** todas las `otel_*` disponibles incluyendo histograma, JVM, DB pool
 
@@ -1391,21 +1380,21 @@ Dashboards found: 5
 
 ---
 
-### Alertas en Grafana
+### Reglas de alerta en Grafana
 
-| UID | Título | Condición | Severidad |
-|-----|--------|-----------|-----------|
-| `fx-high-error-rate` | Alta Tasa de Errores HTTP | Error rate > 10% por 2 min | warning |
-| `fx-high-latency` | Alta Latencia P95 | P95 > 2000ms por 3 min | critical |
-| `fx-no-traffic` | Sin Tráfico HTTP | rate < 0.001 req/s por 10 min | info |
-| `fx-high-cpu` | CPU Alto en Microservicio | CPU JVM > 85% por 2 min | warning |
-| `fx-heap-pressure` | Presión de Memoria Heap | Heap > 90% committed por 5 min | critical |
+Accesibles en http://localhost:3000/alerting/list.
 
-Ver alertas en: http://localhost:3000/alerting/list
+| UID | Título | Condición de disparo | Severidad |
+|-----|--------|-----------------------|-----------|
+| `fx-high-error-rate` | Alta Tasa de Errores HTTP | Error rate > 10% durante 2 min | warning |
+| `fx-high-latency` | Alta Latencia P95 | P95 > 2 000 ms durante 3 min | critical |
+| `fx-no-traffic` | Sin Tráfico HTTP | Tasa < 0.001 req/s durante 10 min | info |
+| `fx-high-cpu` | CPU Elevado | CPU JVM > 85% durante 2 min | warning |
+| `fx-heap-pressure` | Presión de Memoria Heap | Heap > 90% del committed durante 5 min | critical |
 
 ---
 
-### Queries Prometheus verificados (label: `exported_job`)
+### Consultas PromQL de referencia (label: `exported_job`)
 
 ```promql
 # Requests por minuto por servicio
@@ -1427,11 +1416,11 @@ otel_jvm_cpu_recent_utilization_ratio{exported_job="fx-catalog-service"} * 100
 sum(otel_jvm_memory_used_bytes{jvm_memory_type="heap"}) by (exported_job)
 ```
 
-> Documento completo: `docs/queries-prometheus.md` (18 queries validados)
+> Referencia completa: [`docs/queries-prometheus.md`](docs/queries-prometheus.md) — 18 consultas validadas.
 
 ---
 
-### Queries Elasticsearch verificados (índice: `otel-logs-*`)
+### Consultas Elasticsearch de referencia (index: `otel-logs-*`)
 
 ```json
 // Errores últimas 24h (KQL en Kibana Discover)
@@ -1447,11 +1436,11 @@ traceId: "PEGAR_ID_DE_JAEGER"
 traceId: *
 ```
 
-> Documento completo: `docs/queries-elasticsearch.md` (12 queries validados)
+> Referencia completa: [`docs/queries-elasticsearch.md`](docs/queries-elasticsearch.md) — 12 consultas validadas.
 
 ---
 
-### Cómo levantar el proyecto
+### Procedimiento de inicio del proyecto
 
 ```powershell
 # 1. Levantar infraestructura
@@ -1492,53 +1481,56 @@ powershell -File final-verify.ps1
 
 ---
 
-### Qué ver en cada herramienta
+### Guía de navegación por herramienta
 
-**Jaeger** → `http://localhost:16686`
-- Service: `fx-course-service` o `fx-catalog-service`
-- Operaciones: `GET /courses`, `GET /catalog`, `GET /{id}`
-- Trazas con spans anidados si hay llamadas entre servicios
+**Jaeger** — http://localhost:16686
+- Selector **Service:** `fx-course-service` o `fx-catalog-service`.
+- Operaciones instrumentadas: `GET /courses`, `GET /catalog`, `GET /{id}`.
+- Las trazas de `fx-catalog-service` incluyen spans anidados hacia `fx-course-service`.
 
-**Prometheus** → `http://localhost:9090`
-- Status → Targets: target `otel-collector` en **UP**
-- Graph: pegar cualquier query de `docs/queries-prometheus.md`
-- Métricas con prefijo `otel_jvm_*`, `otel_http_*`, `otel_db_*`
+**Prometheus** — http://localhost:9090
+- **Status → Targets:** el target `otel-collector` debe estar en estado **UP**.
+- **Graph:** aceptar consultas PromQL; ver referencia en `docs/queries-prometheus.md`.
+- Métricas disponibles con prefijos `otel_jvm_*`, `otel_http_*`, `otel_db_*`.
 
-**Grafana** → `http://localhost:3000` (admin/admin)
-- Dashboards → Browse → carpeta **FutureX**
-- Alerting → Alert rules → 5 reglas activas en carpeta **FutureX**
-- Todos los paneles muestran datos reales con label `exported_job`
+**Grafana** — http://localhost:3000 (admin / admin)
+- **Dashboards → Browse → carpeta FutureX:** cinco dashboards provisionados.
+- **Alerting → Alert rules:** cinco reglas en evaluación continua.
+- Todos los paneles referencian métricas con el label `exported_job`.
 
-**Kibana** → `http://localhost:5601`
-- Discover → index pattern `otel-logs-*`
-- Campos disponibles: `service.name`, `log.level`, `Body`, `traceId`, `severityNumber`
-- KQL: `log.level: WARNING` para ver logs del OTel Collector y microservicios
+**Kibana** — http://localhost:5601
+- **Discover →** index pattern `otel-logs-*`.
+- Campos indexados: `service.name`, `log.level`, `Body`, `traceId`, `severityNumber`.
+- Filtro de ejemplo: `log.level: WARNING` para visualizar advertencias del OTel Agent y de los microservicios.
 
 ---
 
-### Validación rápida en 5 pasos
+### Verificación rápida del stack
 
 ```powershell
-# 1. Todos los contenedores Up
+# 1. Estado de los contenedores
 docker compose ps
 
-# 2. Métricas llegando a Prometheus
+# 2. Métricas recibidas en Prometheus
 Invoke-WebRequest "http://localhost:9090/api/v1/query?query=otel_http_server_request_duration_seconds_count" | ConvertFrom-Json | Select -ExpandProperty data
 
-# 3. Logs en Elasticsearch
+# 3. Documentos indexados en Elasticsearch
 Invoke-WebRequest "http://localhost:9200/otel-logs-*/_count" | ConvertFrom-Json
 
-# 4. Trazas en Jaeger
+# 4. Servicios registrados en Jaeger
 Invoke-WebRequest "http://localhost:16686/api/services" | ConvertFrom-Json
 
-# 5. Script completo de verificacion final
+# 5. Verificación integral mediante script
 powershell -File final-check.ps1
 ```
 
 ---
 
+## 18. Resumen de Validación Final
 
-### Partes avanzadas implementadas
+> Verificación realizada el 25 de mayo de 2026 con datos reales sobre el stack completo.
+
+### Funcionalidades avanzadas implementadas
 
 | Funcionalidad | Estado | Evidencia |
 |--------------|--------|-----------|
@@ -1562,10 +1554,26 @@ powershell -File final-check.ps1
 
 ---
 
+### Partes que no estaban y se corrigieron
 
-### Validaciones realizadas
+| Problema | Corrección |
+|---------|-----------|
+| Dashboards usaban `service_name` (label incorrecto) | Reemplazado por `exported_job` en todos los dashboards |
+| Alertas fallaban: `invalid relative time range {0s, 0s}` | Reescritura completa con `relativeTimeRange` y `datasourceUid: __expr__` |
+| Datasource UID en alertas no resolvía | `deleteDatasources` + UID fijo `prometheus` en provisioning |
+| Logstash extraía solo el primer logRecord del batch | Reescritura con `split` — ahora emite un evento por cada logRecord |
+| `traceId` vacío en todos los docs de ES | Pipeline nuevo extrae traceId de cada logRecord individualmente |
+| Sintaxis Ruby `k[5..]` no válida en JRuby | Corregido a `k[5, k.length]` |
+| `FRAME_SIZE_ERROR` en OTel Collector | `send_batch_size: 256`, `send_batch_max_size: 512`, `verbosity: normal` |
+| Dashboard avanzado no existía | Creado `futurex-advanced.json` con 11 panels de análisis avanzado |
+| 19 scripts de auditoría temporal acumulados | Eliminados, quedan solo 3 útiles |
+| Kibana sin dashboard ni visualizaciones guardadas | Creados via Saved Objects API: 1 dashboard, 5 visualizaciones, 2 saved searches, index pattern |
 
-**Prometheus:**
+---
+
+### Validaciones realizadas con datos reales
+
+**Prometheus — verificado:**
 - 22 métricas `otel_*` activas
 - 8 métricas clave verificadas con datos reales
 - Errores 404 reales visibles (`http_response_status_code=404`)
@@ -1573,19 +1581,19 @@ powershell -File final-check.ps1
 - Req/min: ~36 (tráfico generado)
 - CPU, Heap, Threads, DB pool — todos con valores reales
 
-**Elasticsearch:**
+**Elasticsearch — verificado:**
 - 1000+ documentos indexados
 - `fx-course-service` y `fx-catalog-service` — ambos indexados
 - 809 documentos con `traceId` real y no vacío
 - Niveles: INFO, WARNING — campos `service.name`, `log.level`, `Body`, `traceId`, `@timestamp` todos presentes
 - Correlación confirmada: mismo traceId en logs de ambos servicios cuando catalog llama a course
 
-**Jaeger:**
+**Jaeger — verificado:**
 - `fx-course-service`: 14 operaciones (HTTP server, SQL client, Hibernate internal, DB TX)
 - `fx-catalog-service`: 4 operaciones (HTTP server + HTTP client call a course-service)
 - Trazas distribuidas confirmadas con propagación W3C TraceContext
 
-**Grafana:**
+**Grafana — verificado:**
 - 5 dashboards cargados vía provisioning
 - 5 alertas activas evaluándose cada minuto
 - 3 datasources: Prometheus (uid=`prometheus`), Elasticsearch, Jaeger
@@ -1603,38 +1611,38 @@ powershell -File final-check.ps1
 
 ---
 
-### Cómo validar manualmente todo el taller
+### Procedimiento de validación manual integral
 
 **Paso 1 — Infraestructura:**
 ```powershell
 docker compose ps
-# Esperado: 8 contenedores Up
+# Resultado esperado: todos los contenedores en estado Up
 ```
 
-**Paso 2 — Generar tráfico:**
+**Paso 2 — Generación de tráfico:**
 ```powershell
 powershell -File generate-traffic-heavy.ps1
 ```
 
-**Paso 3 — Prometheus** → http://localhost:9090
-- Status → Targets → `otel-collector` en **UP**
-- Graph → `sum(rate(otel_http_server_request_duration_seconds_count[1m])) by (exported_job) * 60`
+**Paso 3 — Prometheus** — http://localhost:9090
+- **Status → Targets:** `otel-collector` en estado **UP**.
+- **Graph:** ejecutar `sum(rate(otel_http_server_request_duration_seconds_count[1m])) by (exported_job) * 60`
 
-**Paso 4 — Jaeger** → http://localhost:16686
-- Service: `fx-course-service` → Find Traces → ver spans anidados con SQL
+**Paso 4 — Jaeger** — http://localhost:16686
+- Seleccionar `fx-course-service` → **Find Traces** → verificar spans con operaciones SQL anidadas.
 
-**Paso 5 — Grafana** → http://localhost:3000 (admin/admin)
-- Dashboards → Browse → carpeta FutureX → 5 dashboards
-- Alerting → Alert rules → 5 reglas activas
-- Dashboard avanzado: http://localhost:3000/d/futurex-advanced
+**Paso 5 — Grafana** — http://localhost:3000 (admin / admin)
+- **Dashboards → Browse → carpeta FutureX:** cinco dashboards disponibles.
+- **Alerting → Alert rules:** cinco reglas en evaluación activa.
+- Dashboard de análisis avanzado: http://localhost:3000/d/futurex-advanced
 
-**Paso 6 — Kibana** → http://localhost:5601
-- Dashboard: http://localhost:5601/app/dashboards#/view/futurex-kibana-logs → 6 paneles con datos
-- Discover → Open → `FutureX - Logs con TraceId para Correlacion`
-- Correlación: copiar traceId de Jaeger → buscar en Kibana: `traceId: "VALOR"` → retorna logs de ambos servicios
+**Paso 6 — Kibana** — http://localhost:5601
+- Dashboard: http://localhost:5601/app/dashboards#/view/futurex-kibana-logs → seis paneles con datos reales.
+- **Discover → Open → `FutureX - Logs con TraceId para Correlacion`**
+- Correlación: copiar `traceId` desde Jaeger → buscar en Kibana con `traceId: "VALOR"` → debe retornar logs de ambos servicios.
 
 **Paso 7 — Verificación automática:**
 ```powershell
 powershell -File final-check.ps1
-# Esperado: todos los checks [OK]
+# Resultado esperado: todos los verificadores con resultado [OK]
 ```
