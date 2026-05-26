@@ -215,6 +215,7 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 **Grafana — Dashboards**
 
 - Observabilidad General → http://localhost:3000/d/futurex-observability
+![alt text](image.png)
 - Requests por Endpoint → http://localhost:3000/d/futurex-requests-endpoint
 - CPU y Memoria → http://localhost:3000/d/futurex-resources
 - Errores vs Éxitos → http://localhost:3000/d/futurex-errors-success
@@ -223,14 +224,16 @@ powershell -ExecutionPolicy Bypass -File verify.ps1
 
 **Kibana**
 
-- Dashboard principal → http://localhost:5601/app/dashboards#/view/futurex-kibana-logs
+- Dashboard principal → 
+![alt text](image-1.png)
 - Dev Tools → http://localhost:5601/app/dev_tools#/console
 - Discover → http://localhost:5601/app/discover
 - Index Patterns → http://localhost:5601/app/management/kibana/indexPatterns
 
 **Prometheus**
 
-- Queries PromQL → http://localhost:9090/graph
+- Queries PromQL → 
+![alt text](image-2.png)
 - Targets → http://localhost:9090/targets
 - Alertas → http://localhost:9090/alerts
 - Métricas raw del Collector → http://localhost:8889/metrics
